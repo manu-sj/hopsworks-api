@@ -69,6 +69,13 @@ class Schema:
             return "columnar"
         return None
 
+    def _get_schema(self):
+        if hasattr(self, "tensor_schema"):
+            return self.tensor_schema
+        if hasattr(self, "columnar_schema"):
+            return self.columnar_schema
+        return None
+
     def json(self):
         return json.dumps(
             self, default=lambda o: getattr(o, "__dict__", o), sort_keys=True, indent=2
@@ -79,4 +86,5 @@ class Schema:
         return json.loads(self.json())
 
     def __repr__(self):
-        return f"Schema(type: {self._get_type()!r})"
+        # return f"Schema(type: {self._get_type()!r})"
+        return f"Schema({self.to_dict()})"

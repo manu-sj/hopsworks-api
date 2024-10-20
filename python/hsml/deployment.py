@@ -21,6 +21,7 @@ from hsml import predictor as predictor_mod
 from hsml.client.exceptions import ModelServingException
 from hsml.constants import DEPLOYABLE_COMPONENT, PREDICTOR_STATE
 from hsml.core import model_api, serving_api
+from hsml.deployment_schema import DeploymentSchema
 from hsml.engine import serving_engine
 
 
@@ -43,6 +44,7 @@ class Deployment:
         name: str | None = None,
         description: str | None = None,
         project_namespace: str = None,
+        schema: Optional[DeploymentSchema] = None,
         **kwargs,
     ):
         self._predictor = predictor
@@ -69,6 +71,7 @@ class Deployment:
         self._model_api = model_api.ModelApi()
         self._grpc_channel = None
         self._model_registry_id = None
+        self._schema = schema
 
     @usage.method_logger
     def save(self, await_update: int | None = 600):
@@ -564,10 +567,16 @@ class Deployment:
     def project_name(self, project_name: str):
         self._predictor._project_name = project_name
 
+    @property
+    def schema(self):
+        """Schema of the deployment."""
+        return self._schema
+
     def __repr__(self):
         desc = (
             f", description: {self._description!r}"
             if self._description is not None
             else ""
         )
-        return f"Deployment(name: {self._predictor._name!r}" + desc + ")"
+        schema = f", schema: {self.schema!r}" if self.schema is not None else ""
+        return f"Deployment(name: {self._predictor._name!r}" + desc + schema + ")"

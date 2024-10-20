@@ -27,6 +27,7 @@ from hopsworks_common import client, usage, util
 from hopsworks_common.constants import INFERENCE_ENDPOINTS as IE
 from hopsworks_common.constants import MODEL_REGISTRY
 from hsml.core import explicit_provenance
+from hsml.deployment_schema import DeploymentSchema
 from hsml.engine import model_engine
 from hsml.model_schema import ModelSchema
 from hsml.predictor import Predictor
@@ -213,6 +214,7 @@ class Model:
         transformer: Transformer | dict | None = None,
         api_protocol: str | None = IE.API_PROTOCOL_REST,
         environment: str | None = None,
+        schema: DeploymentSchema | None = None,
     ) -> deployment.Deployment:
         """Deploy the model.
 
@@ -270,6 +272,7 @@ class Model:
             transformer=transformer,
             api_protocol=api_protocol,
             environment=environment,
+            schema=schema,
         )
 
         return predictor.deploy()
@@ -418,6 +421,7 @@ class Model:
     @classmethod
     def from_response_json(cls, json_dict):
         json_decamelized = humps.decamelize(json_dict)
+        print(json_decamelized)
         if "count" in json_decamelized:
             if json_decamelized["count"] == 0:
                 return []
