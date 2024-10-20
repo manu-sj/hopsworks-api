@@ -22,6 +22,7 @@ from hsml.client.exceptions import ModelServingException
 from hsml.client.istio.utils.infer_type import InferInput
 from hsml.constants import DEPLOYABLE_COMPONENT, PREDICTOR_STATE
 from hsml.core import model_api, serving_api
+from hsml.deployment_schema import DeploymentSchema
 from hsml.engine import serving_engine
 from hsml.inference_batcher import InferenceBatcher
 from hsml.inference_logger import InferenceLogger
@@ -39,6 +40,7 @@ class Deployment:
         name: Optional[str] = None,
         description: Optional[str] = None,
         project_namespace: str = None,
+        schema: Optional[DeploymentSchema] = None,
         **kwargs,
     ):
         self._predictor = predictor
@@ -65,6 +67,7 @@ class Deployment:
         self._model_api = model_api.ModelApi()
         self._grpc_channel = None
         self._model_registry_id = None
+        self._schema = schema
 
     @usage.method_logger
     def save(self, await_update: Optional[int] = 120):
@@ -497,10 +500,16 @@ class Deployment:
     def project_namespace(self, project_namespace: str):
         self._predictor.project_namespace = project_namespace
 
+    @property
+    def schema(self):
+        """Schema of the deployment."""
+        return self._schema
+
     def __repr__(self):
         desc = (
             f", description: {self._description!r}"
             if self._description is not None
             else ""
         )
-        return f"Deployment(name: {self._predictor._name!r}" + desc + ")"
+        schema = f", schema: {self.schema!r}" if self.schema is not None else ""
+        return f"Deployment(name: {self._predictor._name!r}" + desc + schema + ")"

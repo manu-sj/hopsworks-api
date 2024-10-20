@@ -27,6 +27,7 @@ from hsml.constants import (
     Default,
 )
 from hsml.deployable_component import DeployableComponent
+from hsml.deployment_schema import DeploymentSchema
 from hsml.inference_batcher import InferenceBatcher
 from hsml.inference_logger import InferenceLogger
 from hsml.predictor_state import PredictorState
@@ -63,6 +64,7 @@ class Predictor(DeployableComponent):
         api_protocol: Optional[str] = INFERENCE_ENDPOINTS.API_PROTOCOL_REST,
         environment: Optional[str] = None,
         project_namespace: str = None,
+        schema: Optional[DeploymentSchema] = None,
         **kwargs,
     ):
         serving_tool = (
@@ -100,6 +102,7 @@ class Predictor(DeployableComponent):
         self._api_protocol = api_protocol
         self._environment = environment
         self._project_namespace = project_namespace
+        self._schema = schema
 
     def deploy(self):
         """Create a deployment for this predictor and persists it in the Model Serving.
@@ -131,9 +134,12 @@ class Predictor(DeployableComponent):
         """
 
         _deployment = deployment.Deployment(
-            predictor=self, name=self._name, description=self._description
+            predictor=self,
+            name=self._name,
+            description=self._description,
+            schema=self._schema,
         )
-        _deployment.save()
+        # _deployment.save()
 
         return _deployment
 
@@ -313,6 +319,7 @@ class Predictor(DeployableComponent):
             "predictor": self._script_file,
             "apiProtocol": self._api_protocol,
             "projectNamespace": self._project_namespace,
+            "schema": self._schema,
         }
         if self.environment is not None:
             json = {**json, **{"environmentDTO": {"name": self._environment}}}
