@@ -26,6 +26,7 @@ from hsml import client, util
 from hsml.constants import ARTIFACT_VERSION
 from hsml.constants import INFERENCE_ENDPOINTS as IE
 from hsml.core import explicit_provenance
+from hsml.deployment_schema import DeploymentSchema
 from hsml.engine import model_engine
 from hsml.inference_batcher import InferenceBatcher
 from hsml.inference_logger import InferenceLogger
@@ -85,6 +86,8 @@ class Model:
         self._framework = framework
         self._model_schema = model_schema
         self._training_dataset = training_dataset
+        print("__init__")
+        print(self._model_schema)
 
         # This is needed for update_from_response_json function to not overwrite name of the shared registry this model originates from
         if not hasattr(self, "_shared_registry_project_name"):
@@ -175,6 +178,7 @@ class Model:
         transformer: Optional[Union[Transformer, dict]] = None,
         api_protocol: Optional[str] = IE.API_PROTOCOL_REST,
         environment: Optional[str] = None,
+        schema: Optional[DeploymentSchema] = None,
     ):
         """Deploy the model.
 
@@ -227,6 +231,7 @@ class Model:
             transformer=transformer,
             api_protocol=api_protocol,
             environment=environment,
+            schema=schema,
         )
 
         return predictor.deploy()
@@ -345,6 +350,7 @@ class Model:
     @classmethod
     def from_response_json(cls, json_dict):
         json_decamelized = humps.decamelize(json_dict)
+        print(json_decamelized)
         if "count" in json_decamelized:
             if json_decamelized["count"] == 0:
                 return []
