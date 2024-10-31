@@ -86,6 +86,9 @@ class Schema:
         """
         return json.loads(self.json())
 
+    def __iter__(self):
+        return iter(self._get_schema())
+
     def __repr__(self):
         # return f"Schema(type: {self._get_type()!r})"
         return f"Schema({self.to_dict()})"

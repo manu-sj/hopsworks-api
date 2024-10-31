@@ -64,17 +64,17 @@ class DeploymentSchema:
     def input_features(self) -> List[str]:
         """Inputs features that must be provided to the deployment"""
         serving_key_schema = (
-            sorted([schema["name"] for schema in self.serving_key_schema])
+            sorted([schema.name for schema in self.serving_key_schema])
             if self.serving_key_schema
             else []
         )
         passed_feature_schema = (
-            sorted([schema["name"] for schema in self.passed_feature_schema])
+            sorted([schema.name for schema in self.passed_feature_schema])
             if self.passed_feature_schema
             else []
         )
         request_parameter_schema = (
-            sorted([schema["name"] for schema in self.request_parameter_schema])
+            sorted([schema.name for schema in self.request_parameter_schema])
             if self.request_parameter_schema
             else []
         )
@@ -85,7 +85,7 @@ class DeploymentSchema:
     def output_features(self) -> List[str]:
         """Output features that must be provided to the deployment"""
         return (
-            sorted([schema["name"] for schema in self.output_schema])
+            sorted([schema.name for schema in self.output_schema])
             if self.output_schema
             else []
         )
