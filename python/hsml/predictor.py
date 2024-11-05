@@ -14,7 +14,7 @@
 #   limitations under the License.
 
 import json
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import humps
 from hsml import client, constants, deployment, util
@@ -65,6 +65,7 @@ class Predictor(DeployableComponent):
         environment: Optional[str] = None,
         project_namespace: str = None,
         schema: Optional[DeploymentSchema] = None,
+        passed_features: Optional[List[str]] = None,
         **kwargs,
     ):
         serving_tool = (
@@ -103,6 +104,7 @@ class Predictor(DeployableComponent):
         self._environment = environment
         self._project_namespace = project_namespace
         self._schema = schema
+        self._passed_features = passed_features
 
     def deploy(self):
         """Create a deployment for this predictor and persists it in the Model Serving.
@@ -138,6 +140,7 @@ class Predictor(DeployableComponent):
             name=self._name,
             description=self._description,
             schema=self._schema,
+            passed_features=self._passed_features,
         )
         # _deployment.save()
 

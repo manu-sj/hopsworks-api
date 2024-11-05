@@ -41,6 +41,7 @@ class Deployment:
         description: Optional[str] = None,
         project_namespace: str = None,
         schema: Optional[DeploymentSchema] = None,
+        passed_features: Optional[List[str]] = None,
         **kwargs,
     ):
         self._predictor = predictor
@@ -68,6 +69,7 @@ class Deployment:
         self._grpc_channel = None
         self._model_registry_id = None
         self._schema = schema
+        self._passed_features = passed_features
 
     @usage.method_logger
     def save(self, await_update: Optional[int] = 120):
