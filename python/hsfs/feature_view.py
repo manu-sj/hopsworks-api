@@ -176,6 +176,11 @@ class FeatureView:
             )
 
         self._features = []
+
+        # on-demand transformation functions are initialized lazily
+        self.__request_parameters: List[str] = None
+        self.__on_demand_transformations: List[TransformationFunction] = None
+
         self._feature_view_engine: feature_view_engine.FeatureViewEngine = (
             feature_view_engine.FeatureViewEngine(featurestore_id)
         )
@@ -4016,7 +4021,7 @@ class FeatureView:
     def transformation_functions(
         self,
     ) -> List[TransformationFunction]:
-        """Get transformation functions."""
+        """Get model-dependent transformation functions."""
         return self._transformation_functions
 
     @transformation_functions.setter
@@ -4040,10 +4045,36 @@ class FeatureView:
     def on_demand_transformations(self) -> Dict["str", Callable]:
         """Get On-Demand transformations as a dictionary mapping on-demand feature names to transformation function"""
         return {
-            feature.on_demand_transformation_function.hopsworks_udf.function_name: feature.on_demand_transformation_function.hopsworks_udf.get_udf()
-            for feature in self.features
-            if feature.on_demand_transformation_function
+            tf.hopsworks_udf.function_name: tf.hopsworks_udf.get_udf()
+            for tf in self._on_demand_transformation_functions
         }
+
+    @property
+    def _on_demand_transformation_functions(self) -> List[TransformationFunction]:
+        """Get meta data objects for all on-demand transformation functions in the feature view."""
+        if self.features and not self.__on_demand_transformations:
+            self.__on_demand_transformations = [
+                feature.on_demand_transformation_function
+                for feature in self.features
+                if feature.on_demand_transformation_function
+            ]
+
+        return self.__on_demand_transformations
+
+    @property
+    def request_parameters(self) -> Optional[List[str]]:
+        """Get the request parameters required to retrieve feature vectors from the feature veiw."""
+        if self._on_demand_transformation_functions and not self.__request_parameters:
+            feature_names = [feature.name for feature in self.features]
+            self.__request_parameters = sorted(
+                {
+                    feature
+                    for tf in self._on_demand_transformation_functions
+                    for feature in tf.hopsworks_udf.transformation_features
+                    if feature not in feature_names
+                }
+            )
+        return self.__request_parameters
 
     @property
     def schema(self) -> List[training_dataset_feature.TrainingDatasetFeature]:

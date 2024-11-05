@@ -169,3 +169,56 @@ class TestFeatureView:
         transformation_functions = fv.transformation_functions
 
         assert transformation_functions[0] != transformation_functions[1]
+
+    def test_from_response_json_on_demand_features(self, mocker, backend_fixtures):
+        # Arrange
+        mocker.patch.object(
+            FeatureStore,
+            "project_id",
+            return_value=99,
+        )
+        mocker.patch("hopsworks_common.client.get_instance")
+        mocker.patch("hsfs.engine.get_type")
+        mocker.patch("hsfs.core.feature_store_api.FeatureStoreApi.get")
+        json = backend_fixtures["feature_view"]["get_on_demand_transformations"][
+            "response"
+        ]
+        # Act
+        fv = feature_view.FeatureView.from_response_json(json)
+
+        # Assert
+        assert fv.name == "test_name"
+        assert fv.id == 11
+        assert isinstance(fv.query, query.Query)
+        assert fv.featurestore_id == 5
+        assert fv.version == 1
+        assert fv.description == "test_description"
+        assert fv.labels == ["intt", "add"]
+        assert len(fv.transformation_functions) == 2
+        assert (
+            fv.transformation_functions[0].hopsworks_udf.function_name == "add_mean_fs"
+        )
+        assert (
+            fv.transformation_functions[1].hopsworks_udf.function_name == "add_one_fs"
+        )
+        assert (
+            fv.transformation_functions[0].hopsworks_udf._function_source
+            == "\n@udf(float)\ndef add_mean_fs(data1 : pd.Series, statistics=stats):\n    return data1 + statistics.data1.mean\n"
+        )
+        assert (
+            fv.transformation_functions[1].hopsworks_udf._function_source
+            == "\n@udf(float)\ndef add_one_fs(data1 : pd.Series):\n    return data1 + 1\n"
+        )
+        assert (
+            fv.transformation_functions[0].transformation_type
+            == TransformationType.MODEL_DEPENDENT
+        )
+        assert (
+            fv.transformation_functions[1].transformation_type
+            == TransformationType.MODEL_DEPENDENT
+        )
+
+        assert len(fv.schema) == 3
+        assert len(fv._on_demand_transformation_functions) == 1
+        assert fv.request_parameters == ["request_parameter"]
+        assert isinstance(fv.schema[0], training_dataset_feature.TrainingDatasetFeature)
