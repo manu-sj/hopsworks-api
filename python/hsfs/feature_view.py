@@ -4557,9 +4557,8 @@ class FeatureView:
     def on_demand_transformations(self) -> dict[str, Callable]:
         """Get On-Demand transformations as a dictionary mapping on-demand feature names to transformation function."""
         return {
-            feature.on_demand_transformation_function.hopsworks_udf.function_name: feature.on_demand_transformation_function.hopsworks_udf.get_udf()
-            for feature in self.features
-            if feature.on_demand_transformation_function
+            tf.hopsworks_udf.function_name: tf.hopsworks_udf.get_udf()
+            for tf in self._on_demand_transformation_functions
         }
 
     @property

@@ -1159,7 +1159,7 @@
         "id": 11,
         "version": 1,
         "description": "test_description",
-        "logging_enabled": true, 
+        "logging_enabled": true,
         "features": [
           {
             "name": "intt",
