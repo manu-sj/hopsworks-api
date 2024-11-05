@@ -13,12 +13,13 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 #
+from __future__ import annotations
 
 import json
 import logging
 import os
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import humps
 from hopsworks_common import usage
@@ -36,6 +37,9 @@ from hsml.resources import PredictorResources
 from hsml.schema import Schema
 from hsml.transformer import Transformer
 
+
+if TYPE_CHECKING:
+    from hsfs import feature_view
 
 _logger = logging.getLogger(__name__)
 
@@ -63,8 +67,8 @@ class Model:
         # unused, but needed since they come in the backend response
         tags=None,
         href=None,
-        feature_view=None,
-        training_dataset_version=None,
+        feature_view: Optional[feature_view.FeatureView] = None,
+        training_dataset_version: Optional[int] = None,
         **kwargs,
     ):
         self._id = id
@@ -243,6 +247,12 @@ class Model:
         if name is None:
             name = self._name
 
+        # Deployment schema would only be inferred if custom transformer, predictor and schema is not provided
+        if not (schema and script_file and transformer) and self._feature_view:
+            schema = Model._infer_deployment_schema(
+                feature_view=self._feature_view, passed_features=passed_features
+            )
+
         predictor = Predictor.for_model(
             self,
             name=name,
@@ -261,6 +271,71 @@ class Model:
         )
 
         return predictor.deploy()
+
+    @staticmethod
+    def _infer_deployment_schema(
+        feature_view: feature_view.FeatureView,
+        passed_features: Optional[List[str]] = None,
+    ) -> DeploymentSchema:
+        """
+        Infer the deployment schema for the deployment using the feature view and list of passed features.
+
+        The inferred deployment schema is a list that consists of the following, in this order: serving keys, passed features, and request parameters, all sorted alphabetically. The datatypes that cannot be inferred as set to `unknown`.
+
+        # Arguments
+            feature_view: The feature view linked to the deployment.
+            passed_features: List of features that would be provided to the deployment at runtime. They can replace features values fetched from the feature store as well as provide feature values which are not available in the feature store.
+        """
+        _logger.info("Inferring deployment Schema")
+        # Creating a mapping from feature name to type for O(1) lookup
+        features_name_type_mapping = {
+            feature.name: feature.type for feature in feature_view.features
+        }
+
+        # Creating list of dictionary with name and type for creating serving key, passed feature and request parameter schema.
+        serving_keys = sorted(
+            [
+                {
+                    "name": sk.feature_name,
+                    "type": features_name_type_mapping.get(sk.feature_name, "unknown"),
+                }
+                for sk in feature_view.serving_keys
+                if sk.required
+            ],
+            key=lambda d: d["name"],
+        )
+        passed_features = sorted(
+            [
+                {
+                    "name": feature,
+                    "type": features_name_type_mapping.get(feature, "unknown"),
+                }
+                for feature in passed_features
+            ]
+            if passed_features
+            else [],
+            key=lambda d: d["name"],
+        )
+        request_parameters = sorted(
+            [
+                {
+                    "name": feature,
+                    "type": features_name_type_mapping.get(feature, "unknown"),
+                }
+                for feature in feature_view.request_parameters
+            ]
+            if feature_view.request_parameters
+            else [],
+            key=lambda d: d["name"],
+        )
+
+        schema = DeploymentSchema(
+            serving_key_schema=Schema(serving_keys),
+            passed_feature_schema=Schema(passed_features),
+            request_parameter_schema=Schema(request_parameters),
+        )
+
+        return schema
 
     @usage.method_logger
     def set_tag(self, name: str, value: Union[str, dict]):
