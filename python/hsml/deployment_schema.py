@@ -91,4 +91,8 @@ class DeploymentSchema:
         )
 
     def __repr__(self):
-        return f"DeploymentSchema(inputs: {self.input_features}, outputs: {self.output_features!r})"
+        return (
+            f"DeploymentSchema(inputs: {self.input_features}, outputs: {self.output_features!r})"
+            if self.output_features
+            else f"DeploymentSchema(inputs: {self.input_features})"
+        )

@@ -18,9 +18,19 @@ import copy
 import os
 
 import humps
+from hopsworks import udf
+from hsfs import (
+    feature,
+    feature_group,
+    feature_view,
+    training_dataset_feature,
+    transformation_function,
+)
+from hsfs.serving_key import ServingKey
 from hsml import model
 from hsml.constants import MODEL
 from hsml.core import explicit_provenance
+from hsml.deployment_schema import DeploymentSchema
 
 
 class TestModel:
@@ -233,11 +243,100 @@ class TestModel:
             transformer=transformer,
             api_protocol=p_json["api_protocol"],
             environment=p_json["environment_dto"]["name"],
+            passed_features=None,
+            schema=None,
         )
         mock_predictor.deploy.assert_called_once()
 
-    # delete
+    def test_infer_deployment_schema_(self, mocker):
+        # Arrange
+        mocker.patch("hsfs.engine.get_type")
+        mocker.patch("hopsworks_common.client.get_instance")
 
+        @udf(int, drop=["request_parameter"])
+        def add(feature1, request_parameter):
+            return feature1 + request_parameter
+
+        fg1 = feature_group.FeatureGroup(
+            name="test1",
+            version=1,
+            featurestore_id=99,
+            primary_key=["id1"],
+            partition_key=[],
+            features=[feature.Feature("id1"), feature.Feature("feature1")],
+            transformation_functions=[add],
+            id=11,
+            stream=False,
+        )
+
+        fg2 = feature_group.FeatureGroup(
+            name="test2",
+            version=1,
+            featurestore_id=99,
+            primary_key=["id2"],
+            partition_key=[],
+            features=[feature.Feature("id2"), feature.Feature("feature2")],
+            id=11,
+            stream=False,
+        )
+
+        fv1 = feature_view.FeatureView(
+            featurestore_id=999,
+            name="test_fv",
+            version=1,
+            query=fg1.select_all().join(fg2.select_all()),
+        )
+        # Mocking schema - obtained from backend
+        fv1.schema = [
+            training_dataset_feature.TrainingDatasetFeature(
+                name="id1", type="bigint", label=False
+            ),
+            training_dataset_feature.TrainingDatasetFeature(
+                name="feature1", type="bigint", label=False
+            ),
+            training_dataset_feature.TrainingDatasetFeature(
+                name="add",
+                type="bigint",
+                label=False,
+                transformation_function=transformation_function.TransformationFunction(
+                    featurestore_id=199,
+                    hopsworks_udf=add,
+                    transformation_type=transformation_function.TransformationType.ON_DEMAND,
+                ),
+            ),
+            training_dataset_feature.TrainingDatasetFeature(
+                name="id2", type="bigint", label=False
+            ),
+            training_dataset_feature.TrainingDatasetFeature(
+                name="feature2", type="bigint", label=False
+            ),
+        ]
+        # Mocking serving keys - obtained from backend
+        fv1.serving_keys = [
+            ServingKey(
+                feature_name="id1", feature_group=fg1, required=True, join_index=None
+            ),
+            ServingKey(
+                feature_name="id2", feature_group=fg1, required=True, join_index=None
+            ),
+        ]
+
+        # Act
+        deployment_schema = model.Model._infer_deployment_schema(
+            feature_view=fv1, passed_features=["passed_feature2", "passed_feature1"]
+        )
+
+        # Assert
+        assert isinstance(deployment_schema, DeploymentSchema)
+        assert deployment_schema.input_features == [
+            "id1",
+            "id2",
+            "passed_feature1",
+            "passed_feature2",
+            "request_parameter",
+        ]
+
+    # delete
     def test_delete(self, mocker, backend_fixtures):
         # Arrange
         m_json = backend_fixtures["model"]["get_python"]["response"]["items"][0]
