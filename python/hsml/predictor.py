@@ -62,7 +62,8 @@ class Predictor(DeployableComponent):
         api_protocol: str | None = INFERENCE_ENDPOINTS.API_PROTOCOL_REST,
         environment: str | None = None,
         project_namespace: str = None,
-        schema: Optional[DeploymentSchema] = None,
+        schema: DeploymentSchema | None = None,
+        passed_features: list[str] | None = None,
         **kwargs,
     ):
         serving_tool = (
@@ -103,6 +104,7 @@ class Predictor(DeployableComponent):
         self._project_namespace = project_namespace
         self._project_name = None
         self._schema = schema
+        self._passed_features = passed_features
 
     def deploy(self):
         """Create a deployment for this predictor and persists it in the Model Serving.
@@ -137,6 +139,7 @@ class Predictor(DeployableComponent):
             name=self._name,
             description=self._description,
             schema=self._schema,
+            passed_features=self._passed_features,
         )
         # _deployment.save()
 

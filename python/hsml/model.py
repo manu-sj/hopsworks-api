@@ -215,6 +215,7 @@ class Model:
         api_protocol: str | None = IE.API_PROTOCOL_REST,
         environment: str | None = None,
         schema: DeploymentSchema | None = None,
+        passed_features: list[str] | None = None,
     ) -> deployment.Deployment:
         """Deploy the model.
 
@@ -249,6 +250,8 @@ class Model:
             transformer: Transformer to be deployed together with the predictor.
             api_protocol: API protocol to be enabled in the deployment (i.e., 'REST' or 'GRPC'). Defaults to 'REST'.
             environment: The inference environment to use.
+            schema: The schema of the data passed to the deployment.
+            passed_features:  List of features provided to the deployment at runtime. These features can either override values fetched from the feature store or supply values for features that aren’t available in the store.
 
         Returns:
             `Deployment`: The deployment metadata object of a new or existing deployment.
@@ -273,6 +276,7 @@ class Model:
             api_protocol=api_protocol,
             environment=environment,
             schema=schema,
+            passed_features=passed_features,
         )
 
         return predictor.deploy()
