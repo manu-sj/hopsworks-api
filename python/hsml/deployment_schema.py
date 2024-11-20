@@ -61,25 +61,37 @@ class DeploymentSchema:
         return json.loads(self.json())
 
     @property
-    def input_features(self) -> List[str]:
-        """Inputs features that must be provided to the deployment"""
-        serving_key_schema = (
-            sorted([schema.name for schema in self.serving_key_schema])
-            if self.serving_key_schema
-            else []
-        )
-        passed_feature_schema = (
+    def passed_features(self) -> List[str]:
+        """The name of the features that would be passed to the deployment."""
+        return (
             sorted([schema.name for schema in self.passed_feature_schema])
             if self.passed_feature_schema
             else []
         )
-        request_parameter_schema = (
+
+    @property
+    def serving_keys(self) -> List[str]:
+        """The name of the feature that are the serving keys required to the retrive feature vectors from the feature store."""
+        return (
+            sorted([schema.name for schema in self.serving_key_schema])
+            if self.serving_key_schema
+            else []
+        )
+
+    @property
+    def request_parameters(self) -> List[str]:
+        """The request parameters required for the computing on-demand features present in the feature view."""
+        return (
             sorted([schema.name for schema in self.request_parameter_schema])
             if self.request_parameter_schema
             else []
         )
 
-        return serving_key_schema + passed_feature_schema + request_parameter_schema
+    @property
+    def input_features(self) -> List[str]:
+        """Inputs features that must be provided to the deployment"""
+
+        return self.serving_keys + self.passed_features + self.request_parameters
 
     @property
     def output_features(self) -> List[str]:

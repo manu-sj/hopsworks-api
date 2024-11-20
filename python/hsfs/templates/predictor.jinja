@@ -41,19 +41,18 @@ class DefaultPredict:
     def predict(self, inputs):
         # Serving keys required for reading features vectors from the feature view.
         entries = {
-        {%for feature in deployemnt_schema.serving_keys %}"{{ feature }}" : inputs[0][{{ loop.index0 }}],
-        {% endfor %}    
-        }
+        {%for feature in deployemnt_schema.serving_keys %}  "{{ feature }}" : inputs[0][{{ loop.index0 }}],
+        {% endfor %}}
 
         # Passed features required to be used while featching feature vectors.
         passed_features = {
-        {%for feature in deployemnt_schema.passed_features %}"{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + loop.index0 }}],
+        {%for feature in deployemnt_schema.passed_features %}   "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + loop.index0 }}],
         {% endfor %}    
         }
         
         # Request Parameters required for fetching feature vectors. 
         request_parameters = {
-        {%for feature in deployemnt_schema.request_parameters %}"{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + deployemnt_schema.passed_features | length + loop.index0 }}],
+        {%for feature in deployemnt_schema.request_parameters %}    "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + deployemnt_schema.passed_features | length + loop.index0 }}],
         {% endfor %}    
         }
         untransformed_feature_vectors = self.fv.get_feature_vectors(entries=entries, passed_features=passed_features, request_parameter=request_parameters, transform=False)        
@@ -77,4 +76,4 @@ class DefaultPredict:
         self.feature_logger.log(untransformed_feature_vectors, feature_vectors, predictions)
         {% endif %}
 
-        return prediction
+        return predictions
