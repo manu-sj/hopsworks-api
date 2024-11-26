@@ -68,7 +68,5 @@ class ModelSchema:
     def input_features(self) -> list[str]:
         """The name of the features required as input for the model."""
         return (
-            sorted([schema.name for schema in self.input_schema])
-            if self.input_schema
-            else []
+            [schema.name for schema in self.input_schema] if self.input_schema else []
         )

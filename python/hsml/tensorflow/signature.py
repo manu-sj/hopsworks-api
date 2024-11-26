@@ -15,7 +15,7 @@
 #
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hopsworks_common import usage
 from hsml.tensorflow.model import Model
@@ -44,6 +44,7 @@ def create_model(
     model_schema: ModelSchema | None = None,
     feature_view=None,
     training_dataset_version: int | None = None,
+    model: Any = None,
 ):
     """Create a TensorFlow model metadata object.
 
@@ -78,6 +79,7 @@ def create_model(
         model_schema=model_schema,
         feature_view=feature_view,
         training_dataset_version=training_dataset_version,
+        model=model,
     )
     model._shared_registry_project_name = _mr.shared_registry_project_name
     model._model_registry_id = _mr.model_registry_id

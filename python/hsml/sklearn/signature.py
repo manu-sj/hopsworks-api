@@ -15,7 +15,7 @@
 #
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hopsworks_common import usage
 from hsml.sklearn.model import Model
@@ -44,6 +44,7 @@ def create_model(
     model_schema: ModelSchema | None = None,
     feature_view=None,
     training_dataset_version: int | None = None,
+    model: Any = None,
 ):
     """Create an SkLearn model metadata object.
 
@@ -68,7 +69,7 @@ def create_model(
     Returns:
         `Model`. The model metadata object.
     """
-    model = Model(
+    hopsworks_model = Model(
         id=None,
         name=name,
         version=version,
@@ -78,8 +79,9 @@ def create_model(
         model_schema=model_schema,
         feature_view=feature_view,
         training_dataset_version=training_dataset_version,
+        model=model,
     )
-    model._shared_registry_project_name = _mr.shared_registry_project_name
-    model._model_registry_id = _mr.model_registry_id
+    hopsworks_model._shared_registry_project_name = _mr.shared_registry_project_name
+    hopsworks_model._model_registry_id = _mr.model_registry_id
 
-    return model
+    return hopsworks_model

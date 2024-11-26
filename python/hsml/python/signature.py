@@ -15,7 +15,7 @@
 #
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hopsworks_common import usage
 from hsml.python.model import Model
@@ -44,6 +44,7 @@ def create_model(
     model_schema: ModelSchema | None = None,
     feature_view=None,
     training_dataset_version: int | None = None,
+    model: Any = None,
 ):
     """Create a generic Python model metadata object.
 
@@ -64,11 +65,12 @@ def create_model(
         model_schema: Optionally a model schema for the model inputs and/or outputs.
         feature_view: Optionally a feature view object returned by querying the feature store. If the feature view is not provided, the model will not have access to provenance.
         training_dataset_version: Optionally a training dataset version. If training dataset version is not provided, but the feature view is provided, the training dataset version used will be the last accessed training dataset of the feature view, within the code/notebook that reads the feature view and training dataset and then creates the model.
+        model: The python object of the model.
 
     Returns:
         `Model`. The model metadata object.
     """
-    model = Model(
+    hopsworks_model = Model(
         id=None,
         name=name,
         version=version,
@@ -78,8 +80,9 @@ def create_model(
         model_schema=model_schema,
         feature_view=feature_view,
         training_dataset_version=training_dataset_version,
+        model=model,
     )
-    model._shared_registry_project_name = _mr.shared_registry_project_name
-    model._model_registry_id = _mr.model_registry_id
+    hopsworks_model._shared_registry_project_name = _mr.shared_registry_project_name
+    hopsworks_model._model_registry_id = _mr.model_registry_id
 
-    return model
+    return hopsworks_model
