@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import humps
 from hopsworks_common import usage
+from hopsworks_common.client.exceptions import ModelRegistryException
+from hopsworks_common.engine.code_genearation_engine import CodeGenerationEngine
 from hsml import client, constants, util
 from hsml.constants import ARTIFACT_VERSION
 from hsml.constants import INFERENCE_ENDPOINTS as IE
@@ -69,6 +71,7 @@ class Model:
         href=None,
         feature_view: Optional[feature_view.FeatureView] = None,
         training_dataset_version: Optional[int] = None,
+        model: Any = None,
         **kwargs,
     ):
         self._id = id
@@ -100,6 +103,7 @@ class Model:
         self._model_engine = model_engine.ModelEngine()
         self._feature_view = feature_view
         self._training_dataset_version = training_dataset_version
+        self._model = model
 
     @usage.method_logger
     def save(
@@ -130,6 +134,9 @@ class Model:
                 self._training_dataset_version = (
                     self._feature_view.get_last_accessed_training_dataset()
                 )
+                _logger.info(
+                    f"Inferring training dataset version used for the model as {self._training_dataset_version}, which was the last accessed one."
+                )
             else:
                 warnings.warn(
                     "Provenance cached data - feature view provided, but training dataset version is missing",
@@ -141,6 +148,7 @@ class Model:
                 self._feature_view is not None
                 and self._training_dataset_version is not None
             ):
+                _logger.info("Inferring model schema as the feature view's features.")
                 all_features = self._feature_view.get_training_dataset_schema(
                     self._training_dataset_version
                 )
@@ -189,6 +197,13 @@ class Model:
             `RestAPIError`.
         """
         self._model_engine.delete(model_instance=self)
+
+    @usage.method_logger
+    def load(self):
+        """
+        Load the instance of the model saved to the model registry using the default load method.
+        """
+        raise NotImplementedError("Load method not defined for this model type.")
 
     @usage.method_logger
     def deploy(
@@ -247,11 +262,17 @@ class Model:
         if name is None:
             name = self._name
 
-        # Deployment schema would only be inferred if custom transformer, predictor and schema is not provided
-        if not (schema and script_file and transformer) and self._feature_view:
-            schema = Model._infer_deployment_schema(
-                feature_view=self._feature_view, passed_features=passed_features
+        if not self._feature_view:
+            self._feature_view = self.get_feature_view(init=False)
+            self._training_dataset_version = (
+                explicit_provenance.Links.get_one_accessible_parent(
+                    self.get_training_dataset_provenance()
+                ).version
             )
+
+        # Deployment schema would only be inferred if custom transformer, predictor and schema is not provided
+        if not (schema or script_file or transformer) and self._feature_view:
+            schema = self.infer_deployment_schema(passed_features=passed_features)
 
         predictor = Predictor.for_model(
             self,
@@ -272,9 +293,8 @@ class Model:
 
         return predictor.deploy()
 
-    @staticmethod
-    def _infer_deployment_schema(
-        feature_view: feature_view.FeatureView,
+    def infer_deployment_schema(
+        self,
         passed_features: Optional[List[str]] = None,
     ) -> DeploymentSchema:
         """
@@ -283,13 +303,25 @@ class Model:
         The inferred deployment schema is a list that consists of the following, in this order: serving keys, passed features, and request parameters, all sorted alphabetically. The datatypes that cannot be inferred as set to `unknown`.
 
         # Arguments
-            feature_view: The feature view linked to the deployment.
             passed_features: List of features that would be provided to the deployment at runtime. They can replace features values fetched from the feature store as well as provide feature values which are not available in the feature store.
         """
+        if not self._feature_view:
+            self._feature_view = self.get_feature_view(init=False)
+            self._training_dataset_version = (
+                explicit_provenance.Links.get_one_accessible_parent(
+                    self.get_training_dataset_provenance()
+                ).version
+            )
+
+        if not self._feature_view:
+            raise ModelRegistryException(
+                "Cannot infer deployment schema because there is no feature view linked with the model."
+            )
+
         _logger.info("Inferring deployment Schema")
         # Creating a mapping from feature name to type for O(1) lookup
         features_name_type_mapping = {
-            feature.name: feature.type for feature in feature_view.features
+            feature.name: feature.type for feature in self._feature_view.features
         }
 
         # Creating list of dictionary with name and type for creating serving key, passed feature and request parameter schema.
@@ -299,7 +331,7 @@ class Model:
                     "name": sk.feature_name,
                     "type": features_name_type_mapping.get(sk.feature_name, "unknown"),
                 }
-                for sk in feature_view.serving_keys
+                for sk in self._feature_view.serving_keys
                 if sk.required
             ],
             key=lambda d: d["name"],
@@ -322,9 +354,9 @@ class Model:
                     "name": feature,
                     "type": features_name_type_mapping.get(feature, "unknown"),
                 }
-                for feature in feature_view.request_parameters
+                for feature in self._feature_view.request_parameters
             ]
-            if feature_view.request_parameters
+            if self._feature_view.request_parameters
             else [],
             key=lambda d: d["name"],
         )
@@ -336,6 +368,62 @@ class Model:
         )
 
         return schema
+
+    def generate_predictor_file(
+        self, deployment_schema, path: Optional[str] = "predictor.py"
+    ) -> str:
+        """
+        Generate the predictor file based on deployment and model schema.
+
+        path (str): The path at which the predictor file will be written . If no path is provided the predictor file will be written to the current working directory with the file name `predictor.py`.
+        """
+        code_generation_engine = CodeGenerationEngine()
+
+        input_schema = self.model_schema.get("input_schema", None)
+        output_schema = self.model_schema.get("output_schema", None)
+
+        input_schema = (
+            input_schema.get("columnar_schema")
+            if "columnar_schema" in input_schema
+            else input_schema.get("tensor_schema")
+        )
+        output_schema = (
+            output_schema.get("columnar_schema")
+            if "columnar_schema" in output_schema
+            else output_schema.get("tensor_schema")
+        )
+        model_schema = ModelSchema(
+            input_schema=Schema(input_schema), output_schema=Schema(output_schema)
+        )
+
+        training_dataset_feature_names = [
+            feature.name
+            for feature in self._feature_view.get_training_dataset_schema(
+                self._training_dataset_version
+            )
+            if not feature.label
+        ]
+
+        code_generation_engine.generate_predictor(
+            enable_logging=False,
+            deployment_schema=deployment_schema,
+            model_schema=model_schema,
+            training_dataset_feature_names=training_dataset_feature_names,
+            path=path,
+        )
+
+        return path
+
+    def upload_predictor_file(self, path):
+        def upload_progress(*args):
+            pass
+
+        self._model_engine._upload_local_model(
+            from_local_model_path=path,
+            to_model_files_path=self.model_files_path,
+            update_upload_progress=upload_progress,
+        )
+        return os.path.join(self.model_files_path, "predictor.py")
 
     @usage.method_logger
     def set_tag(self, name: str, value: Union[str, dict]):
@@ -397,7 +485,9 @@ class Model:
         )
         return util.get_hostname_replaced_url(sub_path=path)
 
-    def get_feature_view(self, init: bool = True, online: Optional[bool] = None):
+    def get_feature_view(
+        self, init: bool = True, online: Optional[bool] = None
+    ) -> feature_view.FeatureView:
         """Get the parent feature view of this model, based on explicit provenance.
          Only accessible, usable feature view objects are returned. Otherwise an Exception is raised.
          For more details, call the base method - get_feature_view_provenance
@@ -451,7 +541,6 @@ class Model:
     @classmethod
     def from_response_json(cls, json_dict):
         json_decamelized = humps.decamelize(json_dict)
-        print(json_decamelized)
         if "count" in json_decamelized:
             if json_decamelized["count"] == 0:
                 return []

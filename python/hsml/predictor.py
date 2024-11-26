@@ -142,7 +142,7 @@ class Predictor(DeployableComponent):
             schema=self._schema,
             passed_features=self._passed_features,
         )
-        # _deployment.save()
+        _deployment.save()
 
         return _deployment
 

@@ -85,3 +85,19 @@ polars_not_installed_message = (
 # SQL packages
 HAS_SQLALCHEMY: bool = importlib.util.find_spec("sqlalchemy") is not None
 HAS_AIOMYSQL: bool = importlib.util.find_spec("aiomysql") is not None
+
+# Tensorflow
+HAS_TENSORFLOW: bool = importlib.util.find_spec("tensorflow") is not None
+tensorflow_not_installed_message = (
+    "Tensorflow package not found. "
+    "You can also install tensorflow directly in your environment with `pip install tensorflow`. "
+    "You will need to restart your kernel if applicable."
+)
+
+# PyTorch
+HAS_PYTORCH: bool = importlib.util.find_spec("torch") is not None
+pytorch_not_installed_message = (
+    "PyTorch package not found. "
+    "You can also install PyTorch directly in your environment with `pip install torch`. "
+    "You will need to restart your kernel if applicable."
+)

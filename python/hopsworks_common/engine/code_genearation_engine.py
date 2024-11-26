@@ -14,26 +14,31 @@
 #   limitations under the License.
 #
 
-from enum import Enum
-from typing import TYPE_CHECKING, Union
+from __future__ import annotations
 
-from hsml.deployment import Deployment
+from enum import Enum
+from typing import TYPE_CHECKING, List, Union
+
 from jinja2 import Environment, PackageLoader, Template, select_autoescape
 
 
 if TYPE_CHECKING:
-    from hsml.deployment import Deployment
+    from hsml.deployment_schema import DeploymentSchema
+    from hsml.model_schema import ModelSchema
 
 
 class CodeTemplates(Enum):
     # Enum mapping the template to a file name
-    PREDICTOR = "predictor.jinja"
+    PREDICTOR = "predictor.j2"
 
 
 class CodeGenerationEngine:
     def __init__(self) -> None:
         self.environment = Environment(
-            loader=PackageLoader("hsfs"), autoescape=select_autoescape()
+            loader=PackageLoader("hsfs"),
+            autoescape=select_autoescape(),
+            trim_blocks=True,
+            lstrip_blocks=True,
         )
 
     def load_template(self, code_template_name: Union[str, CodeTemplates]) -> Template:
@@ -42,25 +47,24 @@ class CodeGenerationEngine:
         else:
             return self.environment.get_template(code_template_name)
 
-    def generate_predictor(self, enable_logging, deployment: Deployment) -> str:
+    def generate_predictor(
+        self,
+        enable_logging,
+        deployment_schema: DeploymentSchema,
+        model_schema: ModelSchema,
+        training_dataset_feature_names: List[str],
+        path: str = "predictor.py",
+    ) -> None:
         """
         Function that generates a predictor file and returns the path the file.
         """
         template = self.load_template(CodeTemplates.PREDICTOR)
-        model = deployment.get_model()
-        feature_view = model.get_feature_view(init=False)
-        feature_view_features = [
-            feature.name
-            for feature in feature_view.get_training_dataset_schema(
-                model.training_dataset_version
-            )
-        ]
-        with open("template.py", "w") as f:
+        with open(path, "w") as f:
             f.write(
                 template.render(
                     async_logger=enable_logging,
-                    deployemnt_schema=deployment.schema,
-                    model_schema=deployment.get_model().model_schema,
-                    feature_view_features=feature_view_features,
+                    deployemnt_schema=deployment_schema,
+                    model_schema=model_schema,
+                    feature_view_features=training_dataset_feature_names,
                 )
             )
