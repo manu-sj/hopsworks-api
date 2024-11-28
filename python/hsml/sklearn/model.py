@@ -149,7 +149,7 @@ class Model(Model):
             model_directory.cleanup()
 
     @usage.method_logger
-    def load(self, path):
+    def load(self, path=None):
         """Load the instance of the model saved to the model registry using the default load method."""
         if not self._model:
             if not path:

@@ -151,7 +151,7 @@ class Model(Model):
         return hopsworks_model
 
     @usage.method_logger
-    def load(self, path):
+    def load(self, path=None):
         """Load the instance of the model saved to the model registry using the default load method."""
         if not self._model:
             if not path:
@@ -168,7 +168,6 @@ class Model(Model):
             except Exception as e:
                 if not path:
                     shutil.rmtree(downloaded_model_directory)
-                raise e
                 raise ModelRegistryException(
                     "Unable to load saved model. Please make sure that the model is saved using the default save method or try loading the model manually."
                 ) from e

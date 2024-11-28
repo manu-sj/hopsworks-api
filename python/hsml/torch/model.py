@@ -151,7 +151,7 @@ class Model(Model):
             model_directory.cleanup()
 
     @usage.method_logger
-    def load(self, path):
+    def load(self, path=None):
         if not self._model:
             if not path:
                 downloaded_model_directory = self.download()
