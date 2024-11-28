@@ -68,7 +68,7 @@ class Predictor:
         # Making predictions
         {# If model schema matches the features in the feature view. Use model to make predictions directly #}
         {% if model_schema.input_features == feature_view_features %}
-        predictions = self.model.predict(feature_vectors)
+        predictions = self.model.predict([feature_vectors])
         {# Else try extracting the required feature from the returned feature vector, the script itself would not be created if any features in the model schema are not in the featue view. #}
         {% else %}
         model_inputs = [
