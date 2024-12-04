@@ -21,7 +21,6 @@ import os
 
 class HdfsApi:
     def __init__(self):
-
         import fsspec.implementations.arrow as pfs
 
         host, port = os.environ["LIBHDFS_DEFAULT_FS"].split(":")
@@ -79,6 +78,14 @@ class HdfsApi:
         )
 
         return upload_path + "/" + os.path.basename(local_path)
+
+    def exists(self, path):
+        """
+        Check if a file exists in the Hopsworks files system.
+
+        :param path: path to download
+        """
+        return self._hopsfs.exists(path)
 
     def download(self, path, local_path, buffer_size=DEFAULT_BUFFER_SIZE):
         """Download file/directory on a path in datasets.

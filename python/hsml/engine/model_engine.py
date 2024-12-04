@@ -19,6 +19,7 @@ import os
 import tempfile
 import time
 import uuid
+import warnings
 
 from hsml import client, constants, util
 from hsml.client.exceptions import ModelRegistryException, RestAPIError
@@ -235,6 +236,16 @@ class ModelEngine:
             )
             n_files += 1
             update_upload_progress(n_dirs, n_files)
+
+    def _upload_predictor_file(self, path, model_instance):
+        if self._engine.exists(os.path.join(model_instance.model_files_path, path)):
+            warnings.warn(
+                "Predictor file already exists overwriting existing file.",
+                stacklevel=1,
+            )
+        return self._engine.upload(
+            local_path=path, remote_path=model_instance.model_files_path, overwrite=True
+        )
 
     def _save_model_from_local_or_hopsfs_mount(
         self,

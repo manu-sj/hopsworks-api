@@ -35,7 +35,7 @@ class CodeTemplates(Enum):
 class CodeGenerationEngine:
     def __init__(self) -> None:
         self.environment = Environment(
-            loader=PackageLoader("hsfs"),
+            loader=PackageLoader("hopsworks.hsfs"),
             autoescape=select_autoescape(),
             trim_blocks=True,
             lstrip_blocks=True,
@@ -53,18 +53,14 @@ class CodeGenerationEngine:
         deployment_schema: DeploymentSchema,
         model_schema: ModelSchema,
         training_dataset_feature_names: List[str],
-        path: str = "predictor.py",
-    ) -> None:
+    ) -> str:
         """
         Function that generates a predictor file and returns the path the file.
         """
         template = self.load_template(CodeTemplates.PREDICTOR)
-        with open(path, "w") as f:
-            f.write(
-                template.render(
-                    async_logger=enable_logging,
-                    deployemnt_schema=deployment_schema,
-                    model_schema=model_schema,
-                    feature_view_features=training_dataset_feature_names,
-                )
-            )
+        return template.render(
+            async_logger=enable_logging,
+            deployemnt_schema=deployment_schema,
+            model_schema=model_schema,
+            feature_view_features=training_dataset_feature_names,
+        )
