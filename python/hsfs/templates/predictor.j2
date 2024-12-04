@@ -5,6 +5,11 @@ from hsml.client.exceptions import ModelServingException
 from hsml.deployment import Deployment
 from hsml.model import Model
 
+{# PATCH MUST BE REMOVED #}
+# PATCH MUST BE REMOVED
+import nest_asyncio
+nest_asyncio.apply()
+
 {# Class definition #}
 class Predictor:
     def __init__(self, deployment : Deployment, model : Model, async_logger):
@@ -51,7 +56,7 @@ class Predictor:
         passed_features = {
         {%for feature in deployemnt_schema.passed_features %}
             "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + loop.index0 }}],
-        {% endfor %}    
+        {% endfor %}
         }
 
         # Request Parameters required for fetching feature vectors.
@@ -87,4 +92,4 @@ class Predictor:
 
 
         {% endif %}
-        return predictions
+        return predictions.tolist()

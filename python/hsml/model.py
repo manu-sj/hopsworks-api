@@ -291,6 +291,9 @@ class Model:
         # Deployment schema would only be inferred if custom transformer, predictor and schema is not provided
         if not (schema or script_file or transformer) and self._feature_view:
             schema = self.infer_deployment_schema(passed_features=passed_features)
+            predictor_file_path = self.generate_predictor_file(deployment_schema=schema)
+            script_file = self.upload_predictor_file(path=predictor_file_path)
+            os.remove(predictor_file_path)
 
         predictor = Predictor.for_model(
             self,
@@ -325,15 +328,14 @@ class Model:
         """
         if not self._feature_view:
             self._feature_view = self.get_feature_view(init=False)
+            if not self._feature_view:
+                raise ModelRegistryException(
+                    "Cannot infer deployment schema because there is no feature view linked with the model."
+                )
             self._training_dataset_version = (
                 explicit_provenance.Links.get_one_accessible_parent(
                     self.get_training_dataset_provenance()
                 ).version
-            )
-
-        if not self._feature_view:
-            raise ModelRegistryException(
-                "Cannot infer deployment schema because there is no feature view linked with the model."
             )
 
         _logger.info("Inferring deployment Schema")
@@ -388,13 +390,25 @@ class Model:
         return schema
 
     def generate_predictor_file(
-        self, deployment_schema, path: str | None = "predictor.py"
+        self,
+        deployment_schema: DeploymentSchema | None = None,
+        file_path: str | None = "predictor.py",
     ) -> str:
         """
         Generate the predictor file based on deployment and model schema.
 
+        deployment_schema (DeploymentSchema): The deployment schema that must be used to generate the predictor file.
         path (str): The path at which the predictor file will be written . If no path is provided the predictor file will be written to the current working directory with the file name `predictor.py`.
         """
+
+        if not deployment_schema:
+            try:
+                deployment_schema = self.infer_deployment_schema()
+            except ModelRegistryException as e:
+                raise ModelRegistryException(
+                    "Cannot generate predictor, because depolyment schema cannot be infered. Please try providing the deployment schema using the parameter `deployment_schema`."
+                ) from e
+
         code_generation_engine = CodeGenerationEngine()
 
         input_schema = self.model_schema.get("input_schema", None)
@@ -422,26 +436,32 @@ class Model:
             if not feature.label
         ]
 
-        code_generation_engine.generate_predictor(
+        predictor_code = code_generation_engine.generate_predictor(
             enable_logging=False,
             deployment_schema=deployment_schema,
             model_schema=model_schema,
             training_dataset_feature_names=training_dataset_feature_names,
-            path=path,
         )
 
-        return path
+        if not file_path.strip().endswith(".py"):
+            raise ModelRegistryException(
+                "Incorrect extension for predictor file. Predictor files must have an extension of `.py`. Please provide the correct extension for the file in filepath."
+            )
+        try:
+            with open(file_path, "w") as f:
+                f.write(predictor_code)
+        except Exception as e:
+            raise ModelRegistryException(
+                f"Cannot create predictor file in path `{file_path}`"
+            ) from e
+
+        return file_path
 
     def upload_predictor_file(self, path):
-        def upload_progress(*args):
-            pass
-
-        self._model_engine._upload_local_model(
-            from_local_model_path=path,
-            to_model_files_path=self.model_files_path,
-            update_upload_progress=upload_progress,
+        return self._model_engine._upload_predictor_file(
+            path=path,
+            model_instance=self,
         )
-        return os.path.join(self.model_files_path, "predictor.py")
 
     @usage.method_logger
     def add_tag(self, name: str, value: str | dict):
