@@ -272,8 +272,11 @@ class Model:
 
         # Deployment schema would only be inferred if custom transformer, predictor and schema is not provided
         if not (schema or script_file or transformer) and self._feature_view:
+            _logger.info("Inferring Deployment Schema")
             schema = self.infer_deployment_schema(passed_features=passed_features)
+            _logger.info("Generating Predictor file")
             predictor_file_path = self.generate_predictor_file(deployment_schema=schema)
+            _logger.info("Uploading Predictor file")
             script_file = self.upload_predictor_file(path=predictor_file_path)
             os.remove(predictor_file_path)
 
@@ -320,7 +323,6 @@ class Model:
                 ).version
             )
 
-        _logger.info("Inferring deployment Schema")
         # Creating a mapping from feature name to type for O(1) lookup
         features_name_type_mapping = {
             feature.name: feature.type for feature in self._feature_view.features
@@ -423,6 +425,7 @@ class Model:
             deployment_schema=deployment_schema,
             model_schema=model_schema,
             training_dataset_feature_names=training_dataset_feature_names,
+            model_type=self.framework,
         )
 
         if not file_path.strip().endswith(".py"):

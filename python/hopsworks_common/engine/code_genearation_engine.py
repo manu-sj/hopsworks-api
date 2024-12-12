@@ -19,6 +19,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, List, Union
 
+from hopsworks_common.constants import MODEL
 from jinja2 import Environment, PackageLoader, Template, select_autoescape
 
 
@@ -40,6 +41,7 @@ class CodeGenerationEngine:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.environment.globals["MODEL"] = MODEL
 
     def load_template(self, code_template_name: Union[str, CodeTemplates]) -> Template:
         if isinstance(code_template_name, CodeTemplates):
@@ -53,14 +55,17 @@ class CodeGenerationEngine:
         deployment_schema: DeploymentSchema,
         model_schema: ModelSchema,
         training_dataset_feature_names: List[str],
+        model_type: MODEL,
     ) -> str:
         """
         Function that generates a predictor file and returns the path the file.
         """
+        print(model_type)
         template = self.load_template(CodeTemplates.PREDICTOR)
         return template.render(
             async_logger=enable_logging,
             deployemnt_schema=deployment_schema,
             model_schema=model_schema,
             feature_view_features=training_dataset_feature_names,
+            modeL_type=model_type,
         )

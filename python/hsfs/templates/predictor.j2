@@ -5,6 +5,11 @@ from hsml.client.exceptions import ModelServingException
 from hsml.deployment import Deployment
 from hsml.model import Model
 
+{% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
+import numpy as np
+import pandas as pd
+{% endif %}
+
 {# PATCH MUST BE REMOVED #}
 # PATCH MUST BE REMOVED
 import nest_asyncio
@@ -12,7 +17,11 @@ nest_asyncio.apply()
 
 {# Class definition #}
 class Predictor:
+    {% if async_logger %}
     def __init__(self, deployment : Deployment, model : Model, async_logger):
+    {% else %}
+    def __init__(self, deployment : Deployment, model : Model):
+    {% endif %}
         # Initializes the serving state, reads a trained model
 
         # The hopsworks model
@@ -34,11 +43,11 @@ class Predictor:
         {% if async_logger %}
         self.feature_view = model.get_feature_view(init=False)
         self.feature_view.init_serving(training_dataset_version=model.training_dataset_version, feature_logger=async_logger)
+        self.feature_logger = async_logger
         {% else %}
         self.feature_view = model.get_feature_view(init=True)
         {% endif %}
 
-        self.feature_logger = async_logger
 
     def load(self, save_directory : str):
         # Load a model saved in the Hopsworks model registery
@@ -63,7 +72,7 @@ class Predictor:
         request_parameters = {
         {%for feature in deployemnt_schema.request_parameters %}
             "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + deployemnt_schema.passed_features | length + loop.index0 }}],
-        {% endfor %}    
+        {% endfor %}
         }
 
         # Fetch feature vector
@@ -90,6 +99,16 @@ class Predictor:
         # Logging features
         self.feature_logger.log(untransformed_feature_vectors, feature_vectors, predictions)
 
+        {% endif %}
+
+        {% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
+        {# Assuming that the return type of a transformation functions can be either a list, a numpy array, pandas DataFrame / Series #}
+        if isinstance(predictions, np.ndarray):
+            predictions = predictions.tolist()
+        elif isinstance(predictions, pd.DataFrame):
+            predictions = predictions.to_dict(orient="records")
+        elif isinstance(predictions, pd.Series):
+            predictions = predictions.to_list()
 
         {% endif %}
-        return predictions.tolist()
+        return predictions
