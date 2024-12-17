@@ -10,6 +10,10 @@ import numpy as np
 import pandas as pd
 {% endif %}
 
+{% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
+import numpy as np
+{% endif %}
+
 {# PATCH MUST BE REMOVED #}
 # PATCH MUST BE REMOVED
 import nest_asyncio
@@ -53,30 +57,74 @@ class Predictor:
         # Load a model saved in the Hopsworks model registery
         return self.hopsworks_model.load(path=None)
 
-    def predict(self, inputs):
+    @staticmethod
+    def build_feature_vector_request_from_dict(data: dict):
         # Serving keys required for reading features vectors from the feature view.
         entries = {
         {%for feature in deployemnt_schema.serving_keys %}
-            "{{ feature }}" : inputs[0][{{ loop.index0 }}],
+            "{{ feature }}" : data["{{ feature }}"],
         {% endfor %}
         }
 
         # Passed features required to be used while featching feature vectors.
         passed_features = {
         {%for feature in deployemnt_schema.passed_features %}
-            "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + loop.index0 }}],
+            "{{ feature }}" : data["{{ feature }}"],
         {% endfor %}
         }
 
         # Request Parameters required for fetching feature vectors.
         request_parameters = {
         {%for feature in deployemnt_schema.request_parameters %}
-            "{{ feature }}" : inputs[0][{{ deployemnt_schema.serving_keys | length + deployemnt_schema.passed_features | length + loop.index0 }}],
+            "{{ feature }}" : data["{{ feature }}"],
         {% endfor %}
         }
 
+        return entries, passed_features, request_parameters
+
+    @staticmethod
+    def build_feature_vector_request_from_list(data: list):
+        # Serving keys required for reading features vectors from the feature view.
+        entries = {
+        {%for feature in deployemnt_schema.serving_keys %}
+            "{{ feature }}" : data[{{ loop.index0 }}],
+        {% endfor %}
+        }
+
+        # Passed features required to be used while featching feature vectors.
+        passed_features = {
+        {%for feature in deployemnt_schema.passed_features %}
+            "{{ feature }}" : data[{{ deployemnt_schema.serving_keys | length + loop.index0 }}],
+        {% endfor %}
+        }
+
+        # Request Parameters required for fetching feature vectors.
+        request_parameters = {
+        {%for feature in deployemnt_schema.request_parameters %}
+            "{{ feature }}" : data[{{ deployemnt_schema.serving_keys | length + deployemnt_schema.passed_features | length + loop.index0 }}],
+        {% endfor %}
+        }
+
+        return entries, passed_features, request_parameters
+
+    def predict(self, inputs):
+        # Serving keys required for reading features vectors from the feature view.
+        entries = []
+        passed_features = []
+        request_parameters = []
+        for data in inputs:
+            if isinstance(data, list):
+                entry, passed_feature, request_parameter = Predictor.build_feature_vector_request_from_list(data)
+            elif isinstance(data, dict):
+                entry, passed_feature, request_parameter = Predictor.build_feature_vector_request_from_dict(data)
+            else:
+                raise ModelServingException(f"Cannot extract the required data from passed input. Ensure that the input data is a list of lists or a list of dictionaries and the each element follows the deployment schema.") from e
+            entries.append(entry)
+            passed_features.append(passed_feature)
+            request_parameters.append(request_parameter)
+
         # Fetch feature vector
-        untransformed_feature_vectors = self.feature_view.get_feature_vectors(entry=[entries], passed_features=passed_features, request_parameters=request_parameters, transform=False)
+        untransformed_feature_vectors = self.feature_view.get_feature_vectors(entry=entries, passed_features=passed_features, request_parameters=request_parameters, transform=False)
         feature_vectors = self.feature_view.transform(untransformed_feature_vectors)
 
         # Making predictions
@@ -109,6 +157,10 @@ class Predictor:
             predictions = predictions.to_dict(orient="records")
         elif isinstance(predictions, pd.Series):
             predictions = predictions.to_list()
-
         {% endif %}
+
+        {% if modeL_type == MODEL.FRAMEWORK_SKLEARN %}
+        predictions = predictions.tolist()
+        {% endif %}
+
         return predictions

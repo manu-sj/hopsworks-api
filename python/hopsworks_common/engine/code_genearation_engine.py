@@ -60,7 +60,6 @@ class CodeGenerationEngine:
         """
         Function that generates a predictor file and returns the path the file.
         """
-        print(model_type)
         template = self.load_template(CodeTemplates.PREDICTOR)
         return template.render(
             async_logger=enable_logging,
