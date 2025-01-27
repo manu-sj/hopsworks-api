@@ -967,6 +967,7 @@ class Engine:
         transformation_functions: List[
             transformation_function.TransformationFunction
         ] = None,
+        transformation_context: Dict[str, Any] = None,
     ):
         for split_name, feature_dataframe in feature_dataframes.items():
             split_path = training_dataset.location + "/" + str(split_name)
@@ -979,6 +980,7 @@ class Engine:
                 save_mode,
                 split_path,
                 to_df=to_df,
+                transformation_context=transformation_context,
             )
 
         if to_df:
