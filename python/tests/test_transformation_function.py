@@ -381,6 +381,15 @@ class TestTransformationFunction:
             "test_func_col1_2",
         ]
 
+    def test_generate_output_column_names_single_argument_multiple_output_type_odt(
+        self,
+    ):
+        @udf([int, float, int])
+        def test_func(col1):
+            return pd.DataFrame(
+                {"col1": [col1 + 1], "col2": [col1 + 1], "col3": [col1 + 1]}
+            )
+
         odt = TransformationFunction(
             featurestore_id=10,
             hopsworks_udf=test_func,
@@ -419,6 +428,17 @@ class TestTransformationFunction:
             "prefix_test_func_prefix_col1_1",
             "prefix_test_func_prefix_col1_2",
         ]
+
+    def test_generate_output_column_names_single_argument_multiple_output_type_prefix_odt(
+        self,
+    ):
+        @udf([int, float, int])
+        def test_func(col1):
+            return pd.DataFrame(
+                {"col1": [col1 + 1], "col2": [col1 + 1], "col3": [col1 + 1]}
+            )
+
+        test_func._feature_name_prefix = "prefix_"
 
         odt = TransformationFunction(
             featurestore_id=10,
@@ -496,6 +516,17 @@ class TestTransformationFunction:
             "prefix_test_func_prefix_col1_prefix_col2_prefix_col3_1",
             "prefix_test_func_prefix_col1_prefix_col2_prefix_col3_2",
         ]
+
+    def test_generate_output_column_names_multiple_argument_multiple_output_type_prefix_odt(
+        self,
+    ):
+        @udf([int, float, int])
+        def test_func(col1, col2, col3):
+            return pd.DataFrame(
+                {"col1": [col1 + 1], "col2": [col2 + 1], "col3": [col3 + 1]}
+            )
+
+        test_func._feature_name_prefix = "prefix_"
 
         odt = TransformationFunction(
             featurestore_id=10,
@@ -911,7 +942,7 @@ class TestTransformationFunction:
             "really_long_function_name_that_exceed_63_characters_causing_inv"
         ]
 
-    def test_equality(self):
+    def test_equality_mdt(self):
         @udf([int])
         def add_one(feature):
             return feature + 1
@@ -928,6 +959,13 @@ class TestTransformationFunction:
             transformation_type=TransformationType.MODEL_DEPENDENT,
         )
 
+        assert mdt1 == mdt2
+
+    def test_equality_odt(self):
+        @udf([int])
+        def add_one(feature):
+            return feature + 1
+
         odt1 = TransformationFunction(
             featurestore_id=10,
             hopsworks_udf=add_one,
@@ -940,6 +978,23 @@ class TestTransformationFunction:
             transformation_type=TransformationType.ON_DEMAND,
         )
 
-        assert mdt1 == mdt2
         assert odt1 == odt2
-        assert mdt1 != odt1
+
+    def test_inequality(self):
+        @udf([int])
+        def add_one(feature):
+            return feature + 1
+
+        mdt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        odt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+
+        assert mdt != odt
