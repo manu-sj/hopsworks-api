@@ -2720,7 +2720,7 @@ class TestPython:
         result = python_engine._apply_transformation_function(
             transformation_functions=fv.transformation_functions,
             dataset=df,
-            transformation_context={"text": 10},
+            transformation_context={"test": 10},
         )
 
         # Assert
