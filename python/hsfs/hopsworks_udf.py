@@ -427,6 +427,8 @@ class HopsworksUdf:
             for arg in arg_list
             if not arg.strip() == ""
         ]
+
+        # Extracting keywords like `context`and `statistics` from the function signature.
         if UDFKeyWords.STATISTICS.value in arg_list:
             arg_list.remove(UDFKeyWords.STATISTICS.value)
         if UDFKeyWords.CONTEXT.value in arg_list:
@@ -450,7 +452,10 @@ class HopsworksUdf:
             raise FeatureStoreException(
                 "No arguments present in the provided user defined function. Please provide at least one argument in the defined user defined function."
             )
+
+        # Extracting keywords like `context`and `statistics` from the function signature.
         for arg in inspect.signature(function).parameters.values():
+            # Fetching default value for statistics parameter to find argument names that require statistics.
             if arg.name == UDFKeyWords.STATISTICS.value:
                 statistics = arg.default
             elif arg.name != UDFKeyWords.CONTEXT.value:
@@ -764,17 +769,16 @@ def renaming_wrapper(*args):
                 f"The number of output feature names provided does not match the number of features returned by the transformation function '{repr(self)}'. Pease provide exactly {len(self.return_types)} feature name(s) to match the output."
             )
 
-    def _validate_transformation_context(self, transformation_context):
+    def _validate_transformation_context(self, transformation_context: Dict[str, Any]):
         """
         Function that checks if the context variables provided to the transformation function is valid.
 
-        It checks if the context variables are defined as arguments to the function and also checks if the context variables are provided as a dictionary mapping strings to objects.
+        it checks if context variables are defined as a dictionary.
         """
-        for context_variable_name in transformation_context:
-            if not isinstance(context_variable_name, str):
-                raise FeatureStoreException(
-                    "Transformation context variable names must be strings."
-                )
+        if not isinstance(transformation_context, dict):
+            raise FeatureStoreException(
+                "Transformation context variable must be passed as dictionary."
+            )
 
         return transformation_context
 
@@ -1027,7 +1031,7 @@ def renaming_wrapper(*args):
     @property
     def unprefixed_transformation_features(self) -> List[str]:
         """
-        List of feature names to be used in the User Defined Function.
+        List of feature name used in the transformation function without the feature name prefix.
         """
         return [
             transformation_feature.feature_name
@@ -1036,6 +1040,7 @@ def renaming_wrapper(*args):
 
     @property
     def feature_name_prefix(self) -> Optional[str]:
+        """The feature name prefix that needs to be added to the feature names"""
         return self._feature_name_prefix
 
     @property

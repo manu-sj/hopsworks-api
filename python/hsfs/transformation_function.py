@@ -235,6 +235,7 @@ class TransformationFunction:
             "version": self._version,
             "featurestoreId": self._featurestore_id,
             "hopsworksUdf": self.hopsworks_udf.to_dict(),
+            "transformationType": self.transformation_type.value,
         }
 
     def alias(self, *args: str):

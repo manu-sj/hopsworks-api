@@ -2930,7 +2930,7 @@ class FeatureGroup(FeatureGroupBase):
                    suite of the feature group should be fetched before every insert.
             wait: Wait for job to finish before returning, defaults to `False`.
                 Shortcut for read_options `{"wait_for_job": False}`.
-            transformation_context: A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
+            transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
 
         # Returns
@@ -3096,7 +3096,7 @@ class FeatureGroup(FeatureGroupBase):
                 * key `ge_validate_kwargs` a dictionary containing kwargs for the validate method of Great Expectations.
                 * key `fetch_expectation_suite` a boolean value, by default `False` for multi part inserts,
                    to control whether the expectation suite of the feature group should be fetched before every insert.
-            transformation_context: A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
+            transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
 
         # Returns
@@ -3213,7 +3213,7 @@ class FeatureGroup(FeatureGroupBase):
                 "insert_stream_" + online_topic_name. Defaults to `None`.
                 write_options: Additional write options for Spark as key-value pairs.
                 Defaults to `{}`.
-            transformation_context: A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
+            transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
 
         # Returns

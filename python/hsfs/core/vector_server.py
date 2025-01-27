@@ -721,7 +721,7 @@ class VectorServer:
 
         # Arguments
             feature_vectors: `Union[List[Any], List[List[Any]], pd.DataFrame, pl.DataFrame]`. The feature vectors to be transformed using attached model-dependent transformations.
-            transformation_context: A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
+            transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
             return_type: `"list"`, `"pandas"`, `"polars"` or `"numpy"`. Defaults to the same type as the input feature vector.
         # Returns
@@ -783,7 +783,7 @@ class VectorServer:
         # Arguments
             feature_vector: `Union[List[Any], List[List[Any]], pd.DataFrame, pl.DataFrame]`. The feature vector to be transformed.
             request_parameters: Request parameters required by on-demand transformation functions to compute on-demand features present in the feature view.
-            transformation_context: A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
+            transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
             return_type: `"list"`, `"pandas"`, `"polars"` or `"numpy"`. Defaults to the same type as the input feature vector.
         # Returns

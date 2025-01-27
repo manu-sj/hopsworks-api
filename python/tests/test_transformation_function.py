@@ -245,12 +245,6 @@ class TestTransformationFunction:
         udf_json["outputColumnNames"] = ["test2_col1_"]
 
         assert tf.hopsworks_udf.to_dict() == udf_json
-        # Creating dict representation of udf.
-        udf_json = test2.to_dict()
-        # Adding output column names to dict for testing since it would be generated when UDF is accessed out the transformation function.
-        udf_json["outputColumnNames"] = ["test2_col1_"]
-
-        assert tf.hopsworks_udf.to_dict() == udf_json
 
     def test_generate_output_column_names_one_argument_one_output_type_mdt(self):
         @udf(int)
@@ -387,6 +381,18 @@ class TestTransformationFunction:
             "test_func_col1_2",
         ]
 
+        odt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=test_func,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+        assert odt._get_output_column_names() == [
+            "test_func_0",
+            "test_func_1",
+            "test_func_2",
+        ]
+        assert odt.output_column_names == ["test_func_0", "test_func_1", "test_func_2"]
+
     def test_generate_output_column_names_single_argument_multiple_output_type_prefix_mdt(
         self,
     ):
@@ -414,6 +420,23 @@ class TestTransformationFunction:
             "prefix_test_func_prefix_col1_2",
         ]
 
+        odt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=test_func,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+
+        assert odt._get_output_column_names() == [
+            "test_func_0",
+            "test_func_1",
+            "test_func_2",
+        ]
+        assert odt.output_column_names == [
+            "prefix_test_func_0",
+            "prefix_test_func_1",
+            "prefix_test_func_2",
+        ]
+
     def test_generate_output_column_names_multiple_argument_multiple_output_type_mdt(
         self,
     ):
@@ -433,6 +456,19 @@ class TestTransformationFunction:
             "test_func_col1_col2_col3_1",
             "test_func_col1_col2_col3_2",
         ]
+
+        odt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=test_func,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+
+        assert odt._get_output_column_names() == [
+            "test_func_0",
+            "test_func_1",
+            "test_func_2",
+        ]
+        assert odt.output_column_names == ["test_func_0", "test_func_1", "test_func_2"]
 
     def test_generate_output_column_names_multiple_argument_multiple_output_type_prefix_mdt(
         self,
@@ -461,22 +497,22 @@ class TestTransformationFunction:
             "prefix_test_func_prefix_col1_prefix_col2_prefix_col3_2",
         ]
 
-    def test_validate_udf_type_on_demand_multiple_output(self):
-        @udf([int, float])
-        def test_func(col1, col2):
-            return pd.DataFrame({"out1": col1 + 1, "out2": col2 + 2})
-
-        with pytest.raises(FeatureStoreException) as exe:
-            TransformationFunction(
-                featurestore_id=10,
-                hopsworks_udf=test_func,
-                transformation_type=TransformationType.ON_DEMAND,
-            )
-
-        assert (
-            str(exe.value)
-            == "On-Demand Transformation functions can only return one column as output"
+        odt = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=test_func,
+            transformation_type=TransformationType.ON_DEMAND,
         )
+
+        assert odt._get_output_column_names() == [
+            "test_func_0",
+            "test_func_1",
+            "test_func_2",
+        ]
+        assert odt.output_column_names == [
+            "prefix_test_func_0",
+            "prefix_test_func_1",
+            "prefix_test_func_2",
+        ]
 
     def test_validate_udf_type_on_demand_statistics(self):
         from hsfs.transformation_statistics import TransformationStatistics
@@ -874,3 +910,36 @@ class TestTransformationFunction:
         assert mdt.hopsworks_udf.output_column_names == [
             "really_long_function_name_that_exceed_63_characters_causing_inv"
         ]
+
+    def test_equality(self):
+        @udf([int])
+        def add_one(feature):
+            return feature + 1
+
+        mdt1 = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        mdt2 = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        odt1 = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+
+        odt2 = TransformationFunction(
+            featurestore_id=10,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.ON_DEMAND,
+        )
+
+        assert mdt1 == mdt2
+        assert odt1 == odt2
+        assert mdt1 != odt1
