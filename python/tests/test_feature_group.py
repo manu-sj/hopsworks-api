@@ -643,6 +643,7 @@ class TestFeatureGroup:
             write_options={"wait_for_job": False},
             validation_options={"save_report": True},
             transformation_context=None,
+            transform=True,
         )
 
     def test_save_report_default_overwritable(self, mocker, dataframe_fixture_basic):
@@ -679,6 +680,7 @@ class TestFeatureGroup:
             write_options={"wait_for_job": False},
             validation_options={"save_report": False},
             transformation_context=None,
+            transform=True,
         )
 
 
