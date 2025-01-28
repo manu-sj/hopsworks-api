@@ -2824,6 +2824,7 @@ class FeatureGroup(FeatureGroupBase):
         validation_options: Optional[Dict[str, Any]] = None,
         wait: bool = False,
         transformation_context: Dict[str, Any] = None,
+        transform: bool = True,
     ) -> Tuple[Optional[Job], Optional[ValidationReport]]:
         """Persist the metadata and materialize the feature group to the feature store
         or insert data from a dataframe into the existing feature group.
@@ -2932,6 +2933,7 @@ class FeatureGroup(FeatureGroupBase):
                 Shortcut for read_options `{"wait_for_job": False}`.
             transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
+            transform: `bool`. When set to `False`, the dataframe is inserted without applying any on-demand transformations. In this case, all required on-demand features must already exist in the provided dataframe. Defaults to `True`.
 
         # Returns
             (`Job`, `ValidationReport`) A tuple with job information if python engine is used and the validation report if validation is enabled.
@@ -2968,6 +2970,7 @@ class FeatureGroup(FeatureGroupBase):
             write_options=write_options,
             validation_options={"save_report": True, **validation_options},
             transformation_context=transformation_context,
+            transform=transform,
         )
 
         if engine.get_type().startswith("spark") and not self.stream:
@@ -2998,6 +3001,7 @@ class FeatureGroup(FeatureGroupBase):
         write_options: Optional[Dict[str, Any]] = None,
         validation_options: Optional[Dict[str, Any]] = None,
         transformation_context: Dict[str, Any] = None,
+        transform: bool = True,
     ) -> Union[
         Tuple[Optional[Job], Optional[ValidationReport]],
         feature_group_writer.FeatureGroupWriter,
@@ -3098,6 +3102,7 @@ class FeatureGroup(FeatureGroupBase):
                    to control whether the expectation suite of the feature group should be fetched before every insert.
             transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
+            transform: `bool`. When set to `False`, the dataframe is inserted without applying any on-demand transformations. In this case, all required on-demand features must already exist in the provided dataframe. Defaults to `True`.
 
         # Returns
             (`Job`, `ValidationReport`) A tuple with job information if python engine is used and the validation report if validation is enabled.
@@ -3117,6 +3122,7 @@ class FeatureGroup(FeatureGroupBase):
                 write_options or {},
                 validation_options or {},
                 transformation_context,
+                transform=transform,
             )
 
     def finalize_multi_part_insert(self) -> None:
@@ -3160,6 +3166,7 @@ class FeatureGroup(FeatureGroupBase):
         checkpoint_dir: Optional[str] = None,
         write_options: Optional[Dict[str, Any]] = None,
         transformation_context: Dict[str, Any] = None,
+        transform: bool = True,
     ) -> TypeVar("StreamingQuery"):
         """Ingest a Spark Structured Streaming Dataframe to the online feature store.
 
@@ -3215,6 +3222,7 @@ class FeatureGroup(FeatureGroupBase):
                 Defaults to `{}`.
             transformation_context: `Dict[str, Any]` A dictionary mapping variable names to objects that will be provided as contextual information to the transformation function at runtime.
                 These variables must be explicitly defined as parameters in the transformation function to be accessible during execution. If no context variables are provided, this parameter defaults to `None`.
+            transform: `bool`. When set to `False`, the dataframe is inserted without applying any on-demand transformations. In this case, all required on-demand features must already exist in the provided dataframe. Defaults to `True`.
 
         # Returns
             `StreamingQuery`: Spark Structured Streaming Query object.
@@ -3249,7 +3257,8 @@ class FeatureGroup(FeatureGroupBase):
                 timeout,
                 checkpoint_dir,
                 write_options or {},
-                transformation_context,
+                transformation_context=transformation_context,
+                transform=transform,
             )
 
     def commit_details(

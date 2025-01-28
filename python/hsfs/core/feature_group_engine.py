@@ -148,6 +148,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         write_options,
         validation_options: dict = None,
         transformation_context: Dict[str, Any] = None,
+        transform: bool = True,
     ):
         dataframe_features = engine.get_instance().parse_schema_feature_group(
             feature_dataframe,
@@ -159,6 +160,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         if (
             not isinstance(feature_group, fg.ExternalFeatureGroup)
             and feature_group.transformation_functions
+            and transform
         ):
             feature_dataframe = engine.get_instance()._apply_transformation_function(
                 feature_group.transformation_functions,
@@ -368,6 +370,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         checkpoint_dir,
         write_options,
         transformation_context: Dict[str, Any] = None,
+        transform: bool = True,
     ):
         if not feature_group.online_enabled and not feature_group.stream:
             raise exceptions.FeatureStoreException(
@@ -384,7 +387,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             )
         )
 
-        if feature_group.transformation_functions:
+        if feature_group.transformation_functions and transform:
             dataframe = engine.get_instance()._apply_transformation_function(
                 feature_group.transformation_functions,
                 dataframe,
