@@ -1144,6 +1144,9 @@ class FeatureViewEngine:
         transformed_features: Union[
             pd.DataFrame, list[list], np.ndarray, TypeVar("pyspark.sql.DataFrame")
         ] = None,
+        serving_keys: Union[
+            pd.DataFrame, list[list], np.ndarray, TypeVar("pyspark.sql.DataFrame")
+        ] = None,
         predictions: Optional[Union[pd.DataFrame, list[list], np.ndarray]] = None,
         write_options: Optional[Dict[str, Any]] = None,
         training_dataset_version: Optional[int] = None,
@@ -1167,6 +1170,7 @@ class FeatureViewEngine:
                             features_rows=features,
                             feature_logging=feature_logging,
                             transformed=transformed,
+                            serving_keys=serving_keys,
                             fv=fv,
                             predictions=predictions,
                             training_dataset_version=training_dataset_version,
@@ -1176,9 +1180,19 @@ class FeatureViewEngine:
                         if features
                         else None
                     )
-                    for transformed, key, features in [
-                        (False, "untransformed_features", untransformed_features),
-                        (True, "transformed_features", transformed_features),
+                    for transformed, key, features, serving_keys in [
+                        (
+                            False,
+                            "untransformed_features",
+                            untransformed_features,
+                            serving_keys,
+                        ),
+                        (
+                            True,
+                            "transformed_features",
+                            transformed_features,
+                            serving_keys,
+                        ),
                     ]
                 }
             )
@@ -1213,7 +1227,8 @@ class FeatureViewEngine:
         features_rows,
         feature_logging,
         transformed,
-        fv,
+        serving_keys,
+        fv: feature_view.FeatureView,
         predictions,
         training_dataset_version,
         hsml_model,
@@ -1265,6 +1280,8 @@ class FeatureViewEngine:
                 time_col_name=FeatureViewEngine._LOG_TIME,
                 model_col_name=FeatureViewEngine._HSML_MODEL,
                 predictions=predictions,
+                serving_keys=serving_keys,
+                serving_keys_features=fv.serving_keys,
                 training_dataset_version=training_dataset_version,
                 hsml_model=self.get_hsml_model_value(hsml_model)
                 if hsml_model

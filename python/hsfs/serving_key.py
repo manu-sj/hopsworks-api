@@ -35,6 +35,7 @@ class ServingKey:
         prefix: str = "",
         join_on: Optional[Union[List[str], str]] = None,
         ignore_prefix: bool = False,
+        type: str = None,
         **kwargs,
     ):
         self._feature_name = feature_name
@@ -44,6 +45,7 @@ class ServingKey:
         self._join_on = join_on
         self._join_index = join_index
         self._ignore_prefix = ignore_prefix
+        self._type = type
 
     @classmethod
     def from_response_json(cls, json_dict) -> Optional[ServingKey]:
@@ -62,6 +64,7 @@ class ServingKey:
             required=json_decamelized.get("required", True),
             prefix=json_decamelized.get("prefix", ""),
             join_on=json_decamelized.get("join_on", None),
+            type=json_decamelized.get("type", None),
         )
         return serving_key
 
@@ -81,6 +84,7 @@ class ServingKey:
             "required": self._required,
             "prefix": self._prefix,
             "join_on": self._join_on,
+            "type": self._type,
         }
 
     def __repr__(self) -> str:
@@ -119,3 +123,8 @@ class ServingKey:
     @property
     def join_on(self) -> Union[List[str], str]:
         return self._join_on
+
+    @property
+    def type(self) -> str:
+        """The data type of the serving-key."""
+        return self._type

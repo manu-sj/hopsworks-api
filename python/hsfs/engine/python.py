@@ -39,6 +39,7 @@ from typing import (
     Union,
 )
 
+from hsfs import serving_key as skm
 from hsfs.core.type_systems import (
     cast_column_to_offline_type,
     cast_column_to_online_type,
@@ -1628,6 +1629,56 @@ class Engine:
                 return feature_log.copy(deep=False)
 
     @staticmethod
+    def _convert_serving_keys_for_logging(
+        serving_keys: Optional[
+            Union[pd.DataFrame, list[list], list[dict], np.ndarray]
+        ] = None,
+        serving_keys_features: List[skm.ServingKey] = None,
+    ) -> pd.DataFrame:
+        serving_keys_features_names = [
+            f.prefix + f.feature_name if f.prefix else f.feature_name
+            for f in serving_keys_features
+        ]
+        required_serving_key_names = [
+            f.prefix + f.feature_name if f.prefix else f.feature_name
+            for f in serving_keys_features
+            if f.required
+        ]
+
+        # Check if serving keys are passed as list of dictionaries.
+        if (
+            serving_keys
+            and isinstance(serving_keys, list)
+            and all(isinstance(serving_key, dict) for serving_key in serving_keys)
+        ):
+            serving_keys = pd.DataFrame(serving_keys)
+        else:
+            try:
+                # Check if user has provided all serving keys
+                serving_keys = Engine._convert_feature_log_to_df(
+                    serving_keys, serving_keys_features_names
+                )
+            except AssertionError:
+                # If not check if user has provided only required serving keys then create a dataframe from it.
+                serving_keys = Engine._convert_feature_log_to_df(
+                    serving_keys, required_serving_key_names
+                )
+
+        # If non-madatory serving keys that are not passed and set that to None
+        for missing_serving_keys in set(serving_keys_features_names) - set(
+            serving_keys.columns
+        ):
+            serving_keys[missing_serving_keys] = None
+
+        for f in serving_keys_features:
+            feature_name = f.prefix + f.feature_name if f.prefix else f.feature_name
+            serving_keys[feature_name] = cast_column_to_offline_type(
+                serving_keys[feature_name], f.type
+            )
+
+        return serving_keys
+
+    @staticmethod
     def _validate_logging_list(feature_log, cols):
         if isinstance(feature_log[0], list) or (
             HAS_NUMPY and isinstance(feature_log[0], np.ndarray)
@@ -1676,6 +1727,10 @@ class Engine:
         time_col_name: Optional[str] = None,
         model_col_name: Optional[str] = None,
         predictions: Optional[Union[pd.DataFrame, list[list], np.ndarray]] = None,
+        serving_keys: Optional[
+            Union[pd.DataFrame, list[list], list[dict], np.ndarray]
+        ] = None,
+        serving_keys_features: List[skm.ServingKey] = None,
         training_dataset_version: Optional[int] = None,
         hsml_model: str = None,
     ) -> pd.DataFrame:
@@ -1690,6 +1745,17 @@ class Engine:
                 )
             if not set(predictions.columns).intersection(set(features.columns)):
                 features = pd.concat([features, predictions], axis=1)
+
+            # Rename label features in the logging feature group to have the prefix 'prediction_'
+            features = features.rename(
+                columns={f.name: f"prediction_{f.name}" for f in td_predictions}
+            )
+
+        if serving_keys_features:
+            serving_keys = Engine._convert_serving_keys_for_logging(
+                serving_keys=serving_keys, serving_keys_features=serving_keys_features
+            )
+            features = pd.concat([features, serving_keys], axis=1)
 
         logging_metadata = Engine.get_logging_metadata(
             size=len(features),
@@ -1716,10 +1782,18 @@ class Engine:
         time_col_name: Optional[str] = None,
         model_col_name: Optional[str] = None,
         predictions: Optional[Union[pd.DataFrame, list[list], np.ndarray]] = None,
+        serving_keys: Optional[
+            Union[pd.DataFrame, list[list], list[dict], np.ndarray]
+        ] = None,
+        serving_keys_features: List[skm.ServingKey] = None,
         training_dataset_version: Optional[int] = None,
         hsml_model=None,
     ) -> list:
-        if isinstance(features, pd.DataFrame):
+        if (
+            isinstance(features, pd.DataFrame)
+            or isinstance(predictions, pd.DataFrame)
+            or isinstance(serving_keys, pd.DataFrame)
+        ):
             return Engine.get_feature_logging_df(
                 features,
                 fg,
@@ -1729,6 +1803,8 @@ class Engine:
                 time_col_name,
                 model_col_name,
                 predictions,
+                serving_keys,
+                serving_keys_features,
                 training_dataset_version,
                 hsml_model,
             ).to_dict(orient="records")
@@ -1742,9 +1818,24 @@ class Engine:
 
             # convert prediction to dict
             if predictions:
-                Engine._validate_logging_list(predictions, td_predictions)
-                for log_vector, row in zip(log_vectors, predictions):
-                    log_vector.update(dict(zip([f.name for f in td_predictions], row)))
+                if isinstance(predictions, pd.DataFrame):
+                    predictions = predictions.to_dict(orient="records")
+                    for log_vector, prediction in zip(log_vectors, predictions):
+                        log_vector.update(prediction)
+                else:
+                    Engine._validate_logging_list(predictions, td_predictions)
+                    for log_vector, row in zip(log_vectors, predictions):
+                        log_vector.update(
+                            dict(zip([f.name for f in td_predictions], row))
+                        )
+
+            if serving_keys_features:
+                serving_keys = Engine._convert_serving_keys_for_logging(
+                    serving_keys=serving_keys,
+                    serving_keys_features=serving_keys_features,
+                ).to_dict(orient="records")
+                for log_vector, serving_key in zip(log_vectors, serving_keys):
+                    log_vector.update(serving_key)
 
             # get metadata
             for row in log_vectors:

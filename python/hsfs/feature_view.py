@@ -3636,6 +3636,9 @@ class FeatureView:
         transformed_features: Union[
             pd.DataFrame, list[list], np.ndarray, TypeVar("pyspark.sql.DataFrame")
         ] = None,
+        serving_keys: Union[
+            pd.DataFrame, list[list], np.ndarray, TypeVar("pyspark.sql.DataFrame")
+        ] = None,
         write_options: Optional[Dict[str, Any]] = None,
         training_dataset_version: Optional[int] = None,
         model: Model = None,
@@ -3649,6 +3652,7 @@ class FeatureView:
             untransformed_features: The untransformed features to be logged. Can be a pandas DataFrame, a list of lists, or a numpy ndarray.
             prediction: The predictions to be logged. Can be a pandas DataFrame, a list of lists, or a numpy ndarray. Defaults to None.
             transformed_features: The transformed features to be logged. Can be a pandas DataFrame, a list of lists, or a numpy ndarray.
+            serving_keys: The serving keys that needs to be logged. Can be a pandas DataFrame, a list of lists, or a numpy ndarray.
             write_options: Options for writing the log. Defaults to None.
             training_dataset_version: Version of the training dataset. If training dataset version is definied in
                 `init_serving` or `init_batch_scoring`, or model has training dataset version,
@@ -3686,10 +3690,11 @@ class FeatureView:
         return self._feature_view_engine.log_features(
             self,
             self.feature_logging,
-            untransformed_features,
-            transformed_features,
-            predictions,
-            write_options,
+            untransformed_features=untransformed_features,
+            transformed_features=transformed_features,
+            serving_keys=serving_keys,
+            prediction=predictions,
+            write_options=write_options,
             training_dataset_version=(
                 training_dataset_version
                 or self._serving_training_dataset_version
