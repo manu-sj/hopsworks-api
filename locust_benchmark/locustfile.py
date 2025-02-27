@@ -1,5 +1,4 @@
 import random
-
 from common.hopsworks_client import HopsworksClient
 from common.stop_watch import stopwatch
 from locust import HttpUser, User, task, constant, events
