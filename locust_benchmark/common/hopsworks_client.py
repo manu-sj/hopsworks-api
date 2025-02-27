@@ -1,42 +1,36 @@
 import datetime
 import random
 import string
-import json
 
 import numpy as np
 import pandas as pd
+import os
 
-from locust.runners import MasterRunner, LocalRunner
 
 import hopsworks
 
 
 class HopsworksClient:
     def __init__(self, environment=None):
-        with open("hopsworks_config.json") as json_file:
-            self.hopsworks_config = json.load(json_file)
-        if environment is None or isinstance(
-            environment.runner, (MasterRunner, LocalRunner)
-        ):
-            print(self.hopsworks_config)
+        print(
+            f'project={os.environ.get("HOPSWORKS_PROJECT", None)}, host={os.environ.get("HOPSWORKS_HOST", None)}, port={os.environ.get("HOPSWORKS_PORT", 443)}, api_key_value={os.environ.get("HOPSWORKS_API_KEY", None)}, engine=python'
+        )
         self.project = hopsworks.login(
-            project=self.hopsworks_config.get("project", "test"),
-            host=self.hopsworks_config.get("host", "localhost"),
-            port=self.hopsworks_config.get("port", 443),
-            api_key_file=".api_key",
+            project=os.environ.get("HOPSWORKS_PROJECT", None),
+            host=os.environ.get("HOPSWORKS_HOST", None),
+            port=os.environ.get("HOPSWORKS_PORT", 443),
+            api_key_value=os.environ.get("HOPSWORKS_API_KEY", None),
             engine="python",
         )
         self.fs = self.project.get_feature_store()
 
         # test settings
-        self.external = self.hopsworks_config.get("external", False)
-        self.rows = self.hopsworks_config.get("rows", 1_000_000)
-        self.schema_repetitions = self.hopsworks_config.get("schema_repetitions", 1)
-        self.recreate_feature_group = self.hopsworks_config.get(
-            "recreate_feature_group", False
-        )
-        self.batch_size = self.hopsworks_config.get("batch_size", 100)
-        self.tablespace = self.hopsworks_config.get("tablespace", None)
+        self.external = os.environ.get("EXTERNAL", False)
+        self.rows = os.environ.get("rows", 1_000_000)
+        self.schema_repetitions = os.environ.get("schema_repetitions", 1)
+        self.recreate_feature_group = os.environ.get("recreate_feature_group", False)
+        self.batch_size = os.environ.get("batch_size", 100)
+        self.tablespace = os.environ.get("tablespace", None)
 
     def get_or_create_fg(self):
         locust_fg = self.fs.get_or_create_feature_group(
@@ -45,7 +39,7 @@ class HopsworksClient:
             primary_key=["ip"],
             online_enabled=True,
             stream=True,
-            online_config={'table_space': self.tablespace} if self.tablespace else None
+            online_config={"table_space": self.tablespace} if self.tablespace else None,
         )
         return locust_fg
 
