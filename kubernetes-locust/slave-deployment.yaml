@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  labels:
+    role: locust-worker
+    app: locust-worker
+  name: locust-worker
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      role: locust-worker
+      app: locust-worker
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        role: locust-worker
+        app: locust-worker
+    spec:
+      containers:
+      - image: dev1.devnet.hops.works:5043/manu_mini_registry/locust_manu:master
+        imagePullPolicy: Always
+        name: worker
+        args: ["--worker", "--master-host=locust-master", "MySQLFeatureVectorLookup"]
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        env:
+        - name: HOPSWORKS_PROJECT
+          value: "test_locust"
+        - name: HOPSWORKS_HOST
+          value: "10.87.41.207"
+        - name: HOPSWORKS_PORT
+          value: "28181"
+        - name: HOPSWORKS_API_KEY
+          value: "pWZOXaWo9HEEFpUm.aXl9z9G0emr9MAG7RQSzHwmGMopTqmVNGQt4iNMR3x5CBRFk54yTjSZqpZgmIBDq"
+        - name:  PYTHONASYNCIODEBUG
+          value: "1"
+      imagePullSecrets:
+        - name: regcred
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30

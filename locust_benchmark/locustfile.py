@@ -1,11 +1,13 @@
+from gevent import monkey
 import random
-
 from common.hopsworks_client import HopsworksClient
 from common.stop_watch import stopwatch
 from locust import HttpUser, User, task, constant, events
 from locust.runners import MasterRunner
 from urllib3 import PoolManager
 import nest_asyncio
+
+monkey.patch_all()
 
 
 @events.init.add_listener
@@ -66,8 +68,8 @@ class MySQLFeatureVectorLookup(User):
 
     def on_start(self):
         self.fv = self.client.get_or_create_fv()
-        self.fv.init_serving(external=self.client.external)
         nest_asyncio.apply()
+        self.fv.init_serving(external=self.client.external)
 
     @task
     def get_feature_vector(self):
