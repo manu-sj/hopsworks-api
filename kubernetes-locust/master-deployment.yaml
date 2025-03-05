@@ -33,13 +33,13 @@ spec:
         - name: HOPSWORKS_PROJECT
           value: "test_locust"
         - name: HOPSWORKS_HOST
-          value: "10.87.41.207"
+          value: "10.87.41.143"
         - name: HOPSWORKS_PORT
           value: "28181"
         - name: HOPSWORKS_API_KEY
-          value: "pWZOXaWo9HEEFpUm.aXl9z9G0emr9MAG7RQSzHwmGMopTqmVNGQt4iNMR3x5CBRFk54yTjSZqpZgmIBDq"
-        - name:  PYTHONASYNCIODEBUG
-          value: "1"
+          value: "LdMwMsQMA4tw3GgZ.aOOxaVjlCuZlF9Y82i900nr6ghB1pGaBwHJmqpbmL7AxLnCgXN6Dyiktli1bf1ba"
+        #- name:  PYTHONASYNCIODEBUG
+        #  value: "1"
         ports:
         - containerPort: 5557
           name: comm
