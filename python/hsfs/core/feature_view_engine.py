@@ -1467,7 +1467,7 @@ class FeatureViewEngine:
                 else None,
             )
         else:
-            return engine.get_instance().get_feature_logging_df(
+            logging_df = engine.get_instance().get_feature_logging_df(
                 logging_data,
                 features_rows,
                 fg=fg,
@@ -1492,6 +1492,10 @@ class FeatureViewEngine:
                 if hsml_model
                 else None,
             )
+            print(f"{logging_data.columns=}")
+            print("\n")
+            print(f"{logging_data.show()}")
+            return logging_df
 
     def read_feature_logs(
         self,
