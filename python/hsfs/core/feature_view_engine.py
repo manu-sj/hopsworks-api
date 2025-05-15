@@ -1345,37 +1345,45 @@ class FeatureViewEngine:
         if write_options:
             default_write_options.update(write_options)
         results = []
+        # FSTORE-1664 combines the untransformed and transformed logging feature groups.
+        # Transformed and untransformed logging features groups are retrived here to maintain backwards compatibility.
         if logger:
             logger.log(
                 **{
                     key: (
                         self._get_feature_logging_data(
-                            logging_data=logs,
-                            features_rows=features,
-                            feature_logging=feature_logging,
-                            transformed=transformed,
                             fv=fv,
+                            logging_feature_group=fg,
+                            logging_data=logs,
+                            untransformed_features=untransformed_features,
+                            transformed_features=transformed_features,
                             predictions=predictions,
+                            helper_columns=helper_columns,
+                            request_parameters=request_parameters,
+                            event_time=event_time,
+                            serving_keys=serving_keys,
+                            extra_logging_features=extra_logging_features,
                             training_dataset_version=training_dataset_version,
                             hsml_model=hsml_model,
                             return_list=True,
                         )
-                        if features
+                        if fg
                         else None
                     )
-                    for transformed, key, features in [
-                        (False, "untransformed_features", untransformed_features),
-                        (True, "transformed_features", transformed_features),
+                    for key, fg in [
+                        (
+                            "untransformed_features",
+                            feature_logging.untransformed_features,
+                        ),
+                        ("transformed_features", feature_logging.transformed_features),
                     ]
                 }
             )
 
         else:
-            # FSTORE-1664 combines the untransformed and transformed logging feature groups.
-            # Transformed and untransformed logging features groups are retrevied here to maintain backwards compatibility.
             for fg in [
-                feature_logging._untransformed_features,
-                feature_logging._transformed_features,
+                feature_logging.untransformed_features,
+                feature_logging.transformed_features,
             ]:
                 if fg:
                     logging_df = self._get_feature_logging_data(
@@ -1529,14 +1537,22 @@ class FeatureViewEngine:
 
         if return_list:
             return engine.get_instance().get_feature_logging_list(
-                transformed_features,
-                fg=logging_feature_group,
-                td_features=td_features,
-                td_predictions=td_predictions,
+                logging_data=logging_data,
+                logging_feature_group_features=logging_feature_group_features,
+                transformed_features=(transformed_features, td_transformed_features),
+                untransformed_features=(untransformed_features, td_features),
+                predictions=(predictions, list(td_predictions_names)),
+                serving_keys=(serving_keys, td_serving_keys),
+                helper_columns=(helper_columns, td_helper_columns),
+                request_parameters=(request_parameters, td_request_parameters),
+                event_time=(event_time, td_event_time),
+                extra_logging_features=(
+                    extra_logging_features,
+                    td_extra_logging_features,
+                ),
                 td_col_name=FeatureViewEngine._LOG_TD_VERSION,
                 time_col_name=FeatureViewEngine._LOG_TIME,
                 model_col_name=FeatureViewEngine._HSML_MODEL,
-                predictions=predictions,
                 training_dataset_version=training_dataset_version,
                 hsml_model=self.get_hsml_model_value(hsml_model)
                 if hsml_model
