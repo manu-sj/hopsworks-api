@@ -1923,7 +1923,7 @@ class Engine:
                 training_dataset_version=training_dataset_version,
                 hsml_model=hsml_model,
             ).to_dict(orient="records")
-
+        index = 0
         for data, feature_names in [
             (logging_data, logging_feature_group_feature_names),
             transformed_features,
@@ -1936,7 +1936,7 @@ class Engine:
             extra_logging_features,
         ]:
             log_vectors: List[Dict[Any, str]] = []
-
+            print(f"Logging Index : {index}")
             # convert features to dict
             if data is None:
                 continue
