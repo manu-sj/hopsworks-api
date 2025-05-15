@@ -1938,10 +1938,11 @@ class Engine:
             log_vectors: List[Dict[Any, str]] = []
 
             # convert features to dict
+            if data is None:
+                continue
             Engine._validate_logging_list(data, feature_names)
             if log_vectors is None:
-                for row in data:
-                    log_vectors.append(dict(zip(feature_names, row)))
+                log_vectors = [dict(zip(feature_names, row)) for row in data]
             elif len(data) == 1 and len(log_vectors) > 1:
                 for log_vector in log_vectors:
                     log_vector.update(dict(zip(feature_names, data[0])))
