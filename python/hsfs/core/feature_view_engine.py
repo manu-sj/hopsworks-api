@@ -1505,25 +1505,29 @@ class FeatureViewEngine:
 
         td_predictions_names = set([feature.name for feature in td_predictions])
 
+        td_helper_columns = (
+            fv.inference_helper_columns if helper_columns is not None else None
+        )
         td_transformed_features = [
             feature.name
             for feature in training_dataset_schema
             if feature.name not in td_predictions_names
+            and feature.name not in fv.training_helper_columns
+            and feature.name not in fv.inference_helper_columns
         ]
 
         td_features = [
             feature.name
             for feature in fv.features
             if feature.name not in td_predictions_names
+            and feature.name not in fv.training_helper_columns
+            and feature.name not in fv.inference_helper_columns
         ]
 
         td_serving_keys = (
             [sk.feature_name for sk in fv.serving_keys if sk.required]
             if serving_keys is not None
             else None
-        )
-        td_helper_columns = (
-            fv.inference_helper_columns if helper_columns is not None else None
         )
         td_request_parameters = fv.request_parameters
         td_event_time = [fv.query._left_feature_group.event_time]

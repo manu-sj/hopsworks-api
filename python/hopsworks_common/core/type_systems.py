@@ -120,6 +120,7 @@ if HAS_PANDAS:
         "tinyint": pd.Int8Dtype(),
         "float": pd.Float32Dtype(),
         "double": pd.Float64Dtype(),
+        "boolean": bool,
     }
 
     pandas_online_dtype_mapping = {
@@ -208,11 +209,7 @@ def cast_pandas_column_to_offline_type(
         return pd.to_datetime(feature_column, utc=True).dt.tz_localize(None)
     elif offline_type == "date":
         return pd.to_datetime(feature_column, utc=True).dt.date
-    elif (
-        offline_type.startswith("array<")
-        or offline_type.startswith("struct<")
-        or offline_type == "boolean"
-    ):
+    elif offline_type.startswith("array<") or offline_type.startswith("struct<"):
         return feature_column.apply(
             lambda x: (ast.literal_eval(x) if isinstance(x, str) else x)
             if (x is not None and not pd.isnull(x) and x != "")

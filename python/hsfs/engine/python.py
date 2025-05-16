@@ -1747,9 +1747,9 @@ class Engine:
                 continue
             elif logging_df.empty:
                 logging_df = df
-            elif len(df) == 1 and len(logging_data) > 1:
+            elif len(df) == 1 and len(logging_df) > 1:
                 for col in df.columns:
-                    if col not in logging_data.columns:
+                    if col not in logging_df.columns:
                         logging_df[col] = (
                             df[col].loc[df.index.repeat(len(logging_df))].reset_index()
                         )
@@ -1792,7 +1792,8 @@ class Engine:
                     [
                         feature
                         for feature in request_parameter_columns
-                        if feature not in avaiable_request_parameters
+                        if feature in avaiable_request_parameters
+                        and feature not in logging_feature_group_feature_names
                     ],
                     axis=1,
                     inplace=True,
@@ -1850,7 +1851,6 @@ class Engine:
             logging_df[missing_event_time_feature] = logging_df[
                 missing_event_time_feature
             ].replace({pd.NaT: None})
-
         return logging_df[logging_feature_group_feature_names]
 
     def get_feature_logging_list(
