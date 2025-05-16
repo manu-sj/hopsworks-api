@@ -1923,7 +1923,6 @@ class Engine:
                 training_dataset_version=training_dataset_version,
                 hsml_model=hsml_model,
             ).to_dict(orient="records")
-        index = 0
         for data, feature_names in [
             (logging_data, logging_feature_group_feature_names),
             transformed_features,
@@ -1936,13 +1935,12 @@ class Engine:
             extra_logging_features,
         ]:
             log_vectors: List[Dict[Any, str]] = []
-            print(f"Logging Index : {index}")
             # convert features to dict
             if data is None:
                 continue
             Engine._validate_logging_list(data, feature_names)
             if log_vectors is None:
-                log_vectors = [dict(zip(feature_names, row)) for row in data]
+                log_vectors = [[dict(zip(feature_names, row)) for row in data]]
             elif len(data) == 1 and len(log_vectors) > 1:
                 for log_vector in log_vectors:
                     log_vector.update(dict(zip(feature_names, data[0])))
