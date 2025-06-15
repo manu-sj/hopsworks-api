@@ -423,17 +423,14 @@ class VectorServer:
             vector_db_features=vector_db_features,
         )
         if len(rondb_entry) == 0:
-            _logger.debug("Empty entry for rondb, skipping fetching.")
             serving_vector = {}  # updated below with vector_db_features and passed_features
         elif online_client_choice == self.DEFAULT_REST_CLIENT:
-            _logger.debug("get_feature_vector Online REST client")
             serving_vector = self.rest_client_engine.get_single_feature_vector(
                 rondb_entry,
                 drop_missing=not allow_missing,
                 return_type=self.rest_client_engine.RETURN_TYPE_FEATURE_VALUE_DICT,
             )
         else:
-            _logger.debug("get_feature_vector Online SQL client")
             serving_vector = self.sql_client.get_single_feature_vector(rondb_entry)
 
         self._raise_transformation_warnings(
@@ -545,7 +542,6 @@ class VectorServer:
                 skipped_empty_entries.append(idx)
 
         if online_client_choice == self.DEFAULT_REST_CLIENT and len(rondb_entries) > 0:
-            _logger.debug("get_batch_feature_vector Online REST client")
             batch_results = self.rest_client_engine.get_batch_feature_vectors(
                 entries=rondb_entries,
                 drop_missing=not allow_missing,
@@ -553,13 +549,10 @@ class VectorServer:
             )
         elif len(rondb_entries) > 0:
             # get result row
-            _logger.debug("get_batch_feature_vectors through SQL client")
             batch_results, _ = self.sql_client.get_batch_feature_vectors(rondb_entries)
         else:
-            _logger.debug("Empty entries for rondb, skipping fetching.")
             batch_results = []
 
-        _logger.debug("Assembling feature vectors from batch results")
         next_skipped = (
             skipped_empty_entries.pop(0) if len(skipped_empty_entries) > 0 else None
         )
@@ -584,7 +577,6 @@ class VectorServer:
             fillvalue=None,
         ):
             if next_skipped == idx:
-                _logger.debug("Entry %d was skipped, setting to empty dict.", idx)
                 next_skipped = (
                     skipped_empty_entries.pop(0)
                     if len(skipped_empty_entries) > 0
@@ -632,15 +624,11 @@ class VectorServer:
     ) -> Optional[List[Any]]:
         """Assembles serving vector from online feature store."""
         # Errors in batch requests are returned as None values
-        _logger.debug("Assembling serving vector: %s", result_dict)
         if result_dict is None:
-            _logger.debug("Found null result, setting to empty dict.")
             result_dict = {}
         if vector_db_result is not None and len(vector_db_result) > 0:
-            _logger.debug("Updating with vector_db features: %s", vector_db_result)
             result_dict.update(vector_db_result)
         if passed_values is not None and len(passed_values) > 0:
-            _logger.debug("Updating with passed features: %s", passed_values)
             result_dict.update(passed_values)
 
         missing_features = (
@@ -683,7 +671,6 @@ class VectorServer:
                 on_demand_features=on_demand_features,
             )
 
-        _logger.debug("Assembled and transformed dict feature vector: %s", result_dict)
         if transform:
             return [
                 result_dict.get(fname, None)
@@ -997,20 +984,16 @@ class VectorServer:
 
         # Only get-feature-vector and get-feature-vectors can return list or numpy
         if return_type.lower() == "list" and not inference_helper:
-            _logger.debug("Returning feature vector as value list")
             return feature_vectorz
         elif return_type.lower() == "numpy" and not inference_helper:
-            _logger.debug("Returning feature vector as numpy array")
             if not HAS_NUMPY:
                 raise ModuleNotFoundError(numpy_not_installed_message)
             return np.array(feature_vectorz)
         # Only inference helper can return dict
         elif return_type.lower() == "dict" and inference_helper:
-            _logger.debug("Returning feature vector as dictionary")
             return feature_vectorz
         # Both can return pandas and polars
         elif return_type.lower() == "pandas":
-            _logger.debug("Returning feature vector as pandas dataframe")
             if batch and inference_helper:
                 return pd.DataFrame(feature_vectorz)
             elif inference_helper:
@@ -1022,7 +1005,6 @@ class VectorServer:
                 pandas_df.columns = column_names
                 return pandas_df
         elif return_type.lower() == "polars":
-            _logger.debug("Returning feature vector as polars dataframe")
             if not HAS_POLARS:
                 raise ModuleNotFoundError(polars_not_installed_message)
             return pl.DataFrame(
@@ -1369,9 +1351,7 @@ class VectorServer:
             matching_keys = set(self.feature_to_handle_if_sql).intersection(
                 row_dict.keys()
             )
-        _logger.debug("Applying return value handlers to : %s", matching_keys)
         for fname in matching_keys:
-            _logger.debug("Applying return value handler to feature: %s", fname)
             row_dict[fname] = self.return_feature_value_handlers[fname](row_dict[fname])
         return row_dict
 
@@ -1525,9 +1505,6 @@ class VectorServer:
 
         Keys relevant to vector_db are filtered out.
         """
-        _logger.debug(
-            "Checking if entry is None and all features in the feature view are on-demand."
-        )
         if not entry:
             if self._all_features_on_demand:
                 return {}
@@ -1542,14 +1519,12 @@ class VectorServer:
             )
             return {}
 
-        _logger.debug("Checking keys in entry are valid serving keys.")
         for key in entry.keys():
             if key not in self.valid_serving_keys:
                 raise exceptions.FeatureStoreException(
                     f"Provided key {key} is not a serving key. Required serving keys: {self.required_serving_keys}."
                 )
 
-        _logger.debug("Checking entry has either all or none of composite serving keys")
         for composite_group in self.groups_of_composite_serving_keys.values():
             present_keys = [
                 True
@@ -1591,9 +1566,6 @@ class VectorServer:
         - The method does not check whether serving keys correspond to existing rows in the online feature store.
         - The method does not check whether the passed features names and data types correspond to the query schema.
         """
-        _logger.debug(
-            "Checking missing serving keys in entry correspond to passed features."
-        )
         missing_features_per_serving_keys = {}
         has_missing = False
         for sk_name, (
@@ -1604,18 +1576,11 @@ class VectorServer:
                 set(passed_features.keys()) if passed_features else set()
             )
             if vector_db_features and len(vector_db_features) > 0:
-                _logger.debug(
-                    "vector_db_features for pre-fetch missing : %s", vector_db_features
-                )
                 passed_feature_names = passed_feature_names.union(
                     vector_db_features.keys()
                 )
             if self._on_demand_feature_names and len(self._on_demand_feature_names) > 0:
                 # Remove on-demand features from validation check as they would be computed.
-                _logger.debug(
-                    "Appending on_demand_feature_names : %s, to passed_feature_names for pre-fetch missing",
-                    self._on_demand_feature_names,
-                )
                 passed_feature_names = passed_feature_names.union(
                     self._on_demand_feature_names
                 )
@@ -1627,9 +1592,6 @@ class VectorServer:
             if (
                 sk_name not in entry.keys() and sk_no_prefix not in entry.keys()
             ) and not fetched_features.issubset(passed_feature_names):
-                _logger.debug(
-                    f"Missing serving key {sk_name} and corresponding features {neither_fetched_nor_passed}."
-                )
                 has_missing = True
                 missing_features_per_serving_keys[sk_name] = neither_fetched_nor_passed
 

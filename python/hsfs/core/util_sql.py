@@ -28,7 +28,7 @@ if HAS_SQLALCHEMY:
     from sqlalchemy.engine.url import make_url
 
 if HAS_AIOMYSQL:
-    from aiomysql.sa import create_engine as async_create_engine
+    from aiomysql import create_pool
 
 
 def create_mysql_engine(
@@ -104,7 +104,7 @@ async def create_async_engine(
         options = {}
 
     # create a aiomysql connection pool
-    pool = await async_create_engine(
+    pool = await create_pool(
         host=hostname,
         port=3306,
         user=online_options["user"],

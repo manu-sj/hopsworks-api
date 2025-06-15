@@ -30,6 +30,7 @@ from hsfs.core import (
     training_dataset_api,
 )
 from hsfs.core.constants import HAS_AIOMYSQL, HAS_SQLALCHEMY
+from line_profiler import profile
 
 
 if TYPE_CHECKING:
@@ -331,10 +332,6 @@ class OnlineStoreSqlClient:
                 prepared_statement_objects[prepared_statement_index]
             )
 
-        # run all the prepared statements in parallel using aiomysql engine
-        _logger.debug(
-            f"Executing prepared statements for serving vector with entries: {bind_entries}"
-        )
         results_dict = self._async_task_thread.submit(
             AsyncTask(
                 task_function=self._execute_prep_statements,
@@ -345,15 +342,22 @@ class OnlineStoreSqlClient:
                 requires_connection_pool=True,
             )
         )
-        _logger.debug(f"Retrieved feature vectors: {results_dict}")
-        _logger.debug("Constructing serving vector from results")
         for key in results_dict:
             for row in results_dict[key]:
-                _logger.debug(f"Processing row: {row} for prepared statement {key}")
-                result_dict = dict(row)
+                keys = self.extract_text_after_as(
+                    prepared_statement_execution[key].text
+                )
+                result_dict = dict(zip(keys, row))
                 serving_vector.update(result_dict)
 
         return serving_vector
+
+    def extract_text_after_as(self, sql_query):
+        # Regular expression to match text after AS (case-insensitive), possibly enclosed in backticks or quotes
+        matches = re.findall(
+            r'\bAS\s+[`\'"]?(\w+)[`\'"]?', sql_query, flags=re.IGNORECASE
+        )
+        return matches
 
     def _batch_vector_results(
         self,
@@ -361,9 +365,6 @@ class OnlineStoreSqlClient:
         prepared_statement_objects: Dict[int, sql.text],
     ):
         """Execute prepared statements in parallel using aiomysql engine."""
-        _logger.debug(
-            f"Starting batch vector retrieval for {len(entries)} entries via aiomysql engine."
-        )
         # create dict object that will have of order of the vector as key and values as
         # vector itself to stitch them correctly if there are multiple feature groups involved. At this point we
         # expect that backend will return correctly ordered vectors.
@@ -372,7 +373,6 @@ class OnlineStoreSqlClient:
         serving_keys_all_fg = []
         prepared_stmts_to_execute = {}
         # construct the list of entry values for binding to query
-        _logger.debug(f"Parametrize prepared statements with entry values: {entries}")
         for prepared_statement_index in prepared_statement_objects:
             # prepared_statement_index include fg with label only
             # But _serving_key_by_serving_index include the index when the join_index is 0 (left side)
@@ -400,14 +400,8 @@ class OnlineStoreSqlClient:
                     entries,
                 )
             )
-            _logger.debug(
-                f"Prepared statement {prepared_statement_index} with entries: {entry_values_tuples}"
-            )
             entry_values[prepared_statement_index] = {"batch_ids": entry_values_tuples}
 
-        _logger.debug(
-            f"Executing prepared statements for batch vector with entries: {entry_values}"
-        )
         # run all the prepared statements in parallel using aiomysql engine
         parallel_results = self._async_task_thread.submit(
             AsyncTask(
@@ -417,9 +411,11 @@ class OnlineStoreSqlClient:
             )
         )
 
-        _logger.debug(f"Retrieved feature vectors: {parallel_results}, stitching them.")
         # construct the results
         for prepared_statement_index in prepared_stmts_to_execute:
+            features = self.extract_text_after_as(
+                prepared_stmts_to_execute[prepared_statement_index].text
+            )
             statement_results = {}
             serving_keys = self.serving_key_by_serving_index[prepared_statement_index]
             serving_keys_all_fg += serving_keys
@@ -428,31 +424,15 @@ class OnlineStoreSqlClient:
                 + sk.feature_name
                 for sk in self.serving_key_by_serving_index[prepared_statement_index]
             ]
-            _logger.debug(
-                f"Use prefix from prepare statement because prefix from serving key is collision adjusted {prefix_features}."
-            )
-            _logger.debug("iterate over results by index of the prepared statement")
             for row in parallel_results[prepared_statement_index]:
-                _logger.debug(f"Processing row: {row}")
-                row_dict = dict(row)
+                row_dict = dict(zip(features, row))
                 # can primary key be complex feature? No, not supported.
                 result_dict = row_dict
-                _logger.debug(
-                    f"Add result to statement results: {self._get_result_key(prefix_features, row_dict)} : {result_dict}"
-                )
                 statement_results[self._get_result_key(prefix_features, row_dict)] = (
                     result_dict
                 )
 
-            _logger.debug(f"Add partial results to batch results: {statement_results}")
             for i, entry in enumerate(entries):
-                _logger.debug(
-                    "Processing entry %s : %s",
-                    entry,
-                    statement_results.get(
-                        self._get_result_key_serving_key(serving_keys, entry), {}
-                    ),
-                )
                 batch_results[i].update(
                     statement_results.get(
                         self._get_result_key_serving_key(serving_keys, entry), {}
@@ -499,7 +479,6 @@ class OnlineStoreSqlClient:
         # `.*?` - matches any character (except for line terminators). `*?` Quantifier —
         # Matches between zero and unlimited times, expanding until needed, i.e 1st occurrence of `\?`
         # character.
-        _logger.debug(f"Parametrizing name {name} in query {query_online}")
         return re.sub(
             r"^(.*?)\?",
             r"\1:" + name,
@@ -510,7 +489,6 @@ class OnlineStoreSqlClient:
     def _get_result_key(
         primary_keys: List[str], result_dict: Dict[str, str]
     ) -> Tuple[str]:
-        _logger.debug(f"Get result key {primary_keys} from result dict {result_dict}")
         result_key = []
         for pk in primary_keys:
             result_key.append(result_dict.get(pk))
@@ -520,19 +498,12 @@ class OnlineStoreSqlClient:
     def _get_result_key_serving_key(
         serving_keys: List[ServingKey], result_dict: Dict[str, Dict[str, Any]]
     ) -> Tuple[str]:
-        _logger.debug(
-            f"Get result key serving key {serving_keys} from result dict {result_dict}"
-        )
         result_key = []
         for sk in serving_keys:
-            _logger.debug(
-                f"Get result key for serving key {sk.required_serving_key} or {sk.feature_name}"
-            )
             result_key.append(
                 result_dict.get(sk.required_serving_key)
                 or result_dict.get(sk.feature_name)
             )
-        _logger.debug(f"Result key: {result_key}")
         return tuple(result_key)
 
     @staticmethod
@@ -561,6 +532,7 @@ class OnlineStoreSqlClient:
         )
         return connection_pool
 
+    @profile
     async def _query_async_sql(
         self,
         stmt,
@@ -570,19 +542,26 @@ class OnlineStoreSqlClient:
         """Query prepared statement together with bind params using aiomysql connection pool"""
         # create connection pool
         async with connection_pool.acquire() as conn:
-            # Execute the prepared statement
-            _logger.debug(
-                f"Executing prepared statement: {stmt} with bind params: {bind_params}"
-            )
-            cursor = await conn.execute(stmt, bind_params)
-            # Fetch the result
-            _logger.debug("Waiting for resultset.")
-            resultset = await cursor.fetchall()
-            _logger.debug(f"Retrieved resultset: {resultset}. Closing cursor.")
-            await cursor.close()
+            async with conn.cursor() as cur:
+                # Execute the prepared statement
+                sql = stmt.text.replace(
+                    ":food_id", f'\'{bind_params.get("food_id", "")}\''
+                )
+                sql = sql.replace(
+                    ":batch_ids",
+                    "("
+                    + ", ".join(
+                        [f"'{data[0]}'" for data in bind_params.get("batch_ids", "")]
+                    )
+                    + ")",
+                )
+                await cur.execute(sql)
+                # Fetch the result
+                resultset = await cur.fetchall()
 
         return resultset
 
+    @profile
     async def _execute_prep_statements(
         self,
         prepared_statements: Dict[int, str],
@@ -618,10 +597,8 @@ class OnlineStoreSqlClient:
                 else 120,
             )
         except asyncio.CancelledError as e:
-            _logger.error(f"Failed executing prepared statements: {e}")
             raise e
         except asyncio.TimeoutError as e:
-            _logger.error(f"Query timed out: {e}")
             raise e
 
         # Create a dict of results with the prepared statement index as key
@@ -687,7 +664,6 @@ class OnlineStoreSqlClient:
 
     @prefix_by_serving_index.setter
     def prefix_by_serving_index(self, prefix_by_serving_index: Dict[int, str]) -> None:
-        _logger.debug(f"Setting prefix by serving index {prefix_by_serving_index}.")
         self._prefix_by_serving_index = prefix_by_serving_index
 
     @property
@@ -725,9 +701,6 @@ class OnlineStoreSqlClient:
                 "Prepared statements are not initialized. Please call `init_prepared_statement` method first."
             )
         else:
-            _logger.debug(
-                "Build serving keys from prepared statements ignoring prefix to ensure compatibility with older version."
-            )
             self._serving_keys = util.build_serving_keys_from_prepared_statements(
                 self.prepared_statements[
                     self.BATCH_VECTOR_KEY
