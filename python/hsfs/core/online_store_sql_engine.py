@@ -30,7 +30,9 @@ from hsfs.core import (
     training_dataset_api,
 )
 from hsfs.core.constants import HAS_AIOMYSQL, HAS_SQLALCHEMY
-from line_profiler import profile
+
+
+# from line_profiler import profile
 
 
 if TYPE_CHECKING:
@@ -532,7 +534,7 @@ class OnlineStoreSqlClient:
         )
         return connection_pool
 
-    @profile
+    # @profile
     async def _query_async_sql(
         self,
         stmt,
@@ -561,7 +563,7 @@ class OnlineStoreSqlClient:
 
         return resultset
 
-    @profile
+    # @profile
     async def _execute_prep_statements(
         self,
         prepared_statements: Dict[int, str],
