@@ -17,13 +17,11 @@ from __future__ import annotations
 
 import itertools
 import logging
-import os
 import warnings
 from base64 import b64decode
 from datetime import datetime, timezone
 from functools import partial
 from io import BytesIO
-from multiprocessing import Pool
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -168,7 +166,7 @@ class VectorServer:
         self._parent_feature_groups: List[FeatureGroup] = []
         self.__all_features_on_demand: Optional[bool] = None
         self.__all_feature_groups_online: Optional[bool] = None
-        self._process_pool = Pool(os.cpu_count() or 1)
+        self._process_pool = 2  # Pool(os.cpu_count() or 1)
 
     def init_serving(
         self,
