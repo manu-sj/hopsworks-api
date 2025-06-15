@@ -167,7 +167,7 @@ class VectorServer:
         self._parent_feature_groups: List[FeatureGroup] = []
         self.__all_features_on_demand: Optional[bool] = None
         self.__all_feature_groups_online: Optional[bool] = None
-        self._process_pool = Pool(2)  # Pool(os.cpu_count() or 1)
+        self._process_pool = Pool(1)  # Pool(os.cpu_count() or 1)
 
     def init_serving(
         self,
