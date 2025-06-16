@@ -573,9 +573,11 @@ class VectorServer:
 
         if len(self.return_feature_value_handlers) > 0:
             args = [(row,) for row in batch_results]
-            batch_results = self._process_pool.map(
-                self.apply_return_value_handlers_worker, args
+            function = partial(
+                self.apply_return_value_handlers_worker,
+                return_feature_value_handlers=self.return_feature_value_handlers,
             )
+            batch_results = self._process_pool.map(function, args)
         # If request parameter is a dictionary then copy it to list with the same length as that of entires
         request_parameters = (
             [request_parameters] * len(entries)
