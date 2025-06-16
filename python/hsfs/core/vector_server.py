@@ -1434,7 +1434,7 @@ class VectorServer:
                     if isinstance(feature_value, bytes)
                     else b64decode(feature_value)
                 ),
-                avro_schema.writers_schema.to_json(),
+                avro_schema,
             )
 
     def set_return_feature_value_handlers(
