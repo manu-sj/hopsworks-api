@@ -1372,7 +1372,7 @@ class VectorServer:
                         f.feature_group_feature_name
                     )
                 )
-            )
+            ).writers_schema.to_json()
             for f in self._features
             if f.is_complex()
         }
@@ -1394,7 +1394,7 @@ class VectorServer:
                                 if isinstance(feature_value, bytes)
                                 else b64decode(feature_value)
                             ),
-                            avro_schema.writers_schema.to_json(),
+                            avro_schema,
                         )
                         # embedded features are deserialized already but not complex features stored in Opensearch
                         if (
