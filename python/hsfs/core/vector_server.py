@@ -84,6 +84,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+return_feature_value_handlers = {}
+
 
 class VectorServer:
     DEFAULT_REST_CLIENT = "rest"
@@ -441,18 +443,12 @@ class VectorServer:
         )
 
         if len(self.return_feature_value_handlers) > 0:
-            args = [
-                (
-                    serving_vector,
-                    "sql",
-                    self.return_feature_value_handlers,
-                    self.feature_to_handle_if_rest,
-                    self.feature_to_handle_if_sql,
-                )
-            ]
-            serving_vector = self._process_pool.map(
-                self.apply_return_value_handlers_worker, args
-            )[0]
+            args = [(serving_vector,)]
+            function = partial(
+                self.apply_return_value_handlers_worker,
+                return_feature_value_handlers=self.return_feature_value_handlers,
+            )
+            serving_vector = self._process_pool.map(function, args)[0]
 
         vector = self.assemble_feature_vector(
             result_dict=serving_vector,
@@ -576,16 +572,7 @@ class VectorServer:
         vectors = []
 
         if len(self.return_feature_value_handlers) > 0:
-            args = [
-                (
-                    row,
-                    "sql",
-                    self.return_feature_value_handlers,
-                    self.feature_to_handle_if_rest,
-                    self.feature_to_handle_if_sql,
-                )
-                for row in batch_results
-            ]
+            args = [(row,) for row in batch_results]
             batch_results = self._process_pool.map(
                 self.apply_return_value_handlers_worker, args
             )
@@ -1373,21 +1360,9 @@ class VectorServer:
 
     # This will be the function used in multiprocessing
     @staticmethod
-    def apply_return_value_handlers_worker(args):
-        (
-            row_dict,
-            client,
-            return_feature_value_handlers,
-            feature_to_handle_if_rest,
-            feature_to_handle_if_sql,
-        ) = args
-
-        if client == VectorServer.DEFAULT_REST_CLIENT:
-            matching_keys = feature_to_handle_if_rest.intersection(row_dict.keys())
-        else:
-            matching_keys = feature_to_handle_if_sql.intersection(row_dict.keys())
-
-        for fname in matching_keys:
+    def apply_return_value_handlers_worker(args, return_feature_value_handlers):
+        (row_dict,) = args
+        for fname in ["food_embedding_embedding_body"]:
             row_dict[fname] = return_feature_value_handlers[fname](row_dict[fname])
         return row_dict
 
@@ -1464,6 +1439,8 @@ class VectorServer:
                 self._return_feature_value_handlers[feature.name] = (
                     self._handle_timestamp_based_on_dtype
                 )
+        global return_feature_value_handlers
+        return_feature_value_handlers = self._return_feature_value_handlers
 
     def _handle_timestamp_based_on_dtype(
         self, timestamp_value: Union[str, int]
