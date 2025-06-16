@@ -20,7 +20,9 @@ import logging
 import warnings
 from base64 import b64decode
 from datetime import datetime, timezone
+from functools import partial
 from io import BytesIO
+from multiprocessing import Pool
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -73,7 +75,6 @@ if HAS_FAST_AVRO:
 if HAS_AVRO:
     import avro.io
     import avro.schema
-    from avro.io import BinaryDecoder
 
 if HAS_POLARS:
     import polars as pl
@@ -166,6 +167,7 @@ class VectorServer:
         self._parent_feature_groups: List[FeatureGroup] = []
         self.__all_features_on_demand: Optional[bool] = None
         self.__all_feature_groups_online: Optional[bool] = None
+        self._process_pool = Pool(3)  # Pool(os.cpu_count() or 1)
 
     def init_serving(
         self,
@@ -424,6 +426,7 @@ class VectorServer:
         )
         if len(rondb_entry) == 0:
             serving_vector = {}  # updated below with vector_db_features and passed_features
+
         elif online_client_choice == self.DEFAULT_REST_CLIENT:
             serving_vector = self.rest_client_engine.get_single_feature_vector(
                 rondb_entry,
@@ -436,6 +439,20 @@ class VectorServer:
         self._raise_transformation_warnings(
             transform=transform, on_demand_features=on_demand_features
         )
+
+        if len(self.return_feature_value_handlers) > 0:
+            args = [
+                (
+                    serving_vector,
+                    "sql",
+                    self.return_feature_value_handlers,
+                    self.feature_to_handle_if_rest,
+                    self.feature_to_handle_if_sql,
+                )
+            ]
+            serving_vector = self._process_pool.map(
+                self.apply_return_value_handlers_worker, args
+            )[0]
 
         vector = self.assemble_feature_vector(
             result_dict=serving_vector,
@@ -558,6 +575,20 @@ class VectorServer:
         )
         vectors = []
 
+        if len(self.return_feature_value_handlers) > 0:
+            args = [
+                (
+                    row,
+                    "sql",
+                    self.return_feature_value_handlers,
+                    self.feature_to_handle_if_rest,
+                    self.feature_to_handle_if_sql,
+                )
+                for row in batch_results
+            ]
+            batch_results = self._process_pool.map(
+                self.apply_return_value_handlers_worker, args
+            )
         # If request parameter is a dictionary then copy it to list with the same length as that of entires
         request_parameters = (
             [request_parameters] * len(entries)
@@ -657,8 +688,6 @@ class VectorServer:
                 f"2. Required entries [{', '.join(self.required_serving_keys)}] are not provided."
             )
 
-        if len(self.return_feature_value_handlers) > 0:
-            self.apply_return_value_handlers(result_dict, client=client)
         if (
             len(self.model_dependent_transformation_functions) > 0
             or len(self.on_demand_transformation_functions) > 0
@@ -1342,17 +1371,24 @@ class VectorServer:
 
         return encoded_feature_dict
 
-    def apply_return_value_handlers(
-        self, row_dict: Dict[str, Any], client: Literal["rest", "sql"]
-    ):
-        if client == self.DEFAULT_REST_CLIENT:
-            matching_keys = self.feature_to_handle_if_rest.intersection(row_dict.keys())
+    # This will be the function used in multiprocessing
+    @staticmethod
+    def apply_return_value_handlers_worker(args):
+        (
+            row_dict,
+            client,
+            return_feature_value_handlers,
+            feature_to_handle_if_rest,
+            feature_to_handle_if_sql,
+        ) = args
+
+        if client == VectorServer.DEFAULT_REST_CLIENT:
+            matching_keys = feature_to_handle_if_rest.intersection(row_dict.keys())
         else:
-            matching_keys = set(self.feature_to_handle_if_sql).intersection(
-                row_dict.keys()
-            )
+            matching_keys = feature_to_handle_if_sql.intersection(row_dict.keys())
+
         for fname in matching_keys:
-            row_dict[fname] = self.return_feature_value_handlers[fname](row_dict[fname])
+            row_dict[fname] = return_feature_value_handlers[fname](row_dict[fname])
         return row_dict
 
     def build_complex_feature_decoders(self) -> Dict[str, Callable]:
@@ -1383,51 +1419,23 @@ class VectorServer:
             _logger.debug(
                 f"Building complex feature decoders corresponding to {complex_feature_schemas}."
             )
-        if HAS_FAST_AVRO:
-            _logger.debug("Using fastavro for deserialization.")
-            return {
-                f_name: (
-                    lambda feature_value, avro_schema=schema: (
-                        schemaless_reader(
-                            BytesIO(
-                                feature_value
-                                if isinstance(feature_value, bytes)
-                                else b64decode(feature_value)
-                            ),
-                            avro_schema,
-                        )
-                        # embedded features are deserialized already but not complex features stored in Opensearch
-                        if (
-                            isinstance(feature_value, bytes)
-                            or isinstance(feature_value, str)
-                        )
-                        else feature_value
-                    )
-                )
-                for (f_name, schema) in complex_feature_schemas.items()
-            }
-        else:
-            _logger.debug("Fast Avro not found, using avro for deserialization.")
-            return {
-                f_name: (
-                    lambda feature_value, avro_schema=schema: avro_schema.read(
-                        BinaryDecoder(
-                            BytesIO(
-                                feature_value
-                                if isinstance(feature_value, bytes)
-                                else b64decode(feature_value)
-                            )
-                        )
-                    )
-                    # embedded features are deserialized already but not complex features stored in Opensearch
-                    if (
-                        isinstance(feature_value, str)
-                        or isinstance(feature_value, bytes)
-                    )
-                    else feature_value
-                )
-                for (f_name, schema) in complex_feature_schemas.items()
-            }
+            encoders = {}
+            for f_name, schema in complex_feature_schemas.items():
+                encoders[f_name] = partial(VectorServer._encoder, avro_schema=schema)
+            return encoders
+
+    @staticmethod
+    def _encoder(feature_value, avro_schema):
+        """Encode the feature value using the provided Avro schema."""
+        if isinstance(feature_value, str) or isinstance(feature_value, bytes):
+            return schemaless_reader(
+                BytesIO(
+                    feature_value
+                    if isinstance(feature_value, bytes)
+                    else b64decode(feature_value)
+                ),
+                avro_schema.writers_schema.to_json(),
+            )
 
     def set_return_feature_value_handlers(
         self, features: List[tdf_mod.TrainingDatasetFeature]
