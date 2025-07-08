@@ -149,7 +149,10 @@ class VectorServer:
         self._model_dependent_transformation_functions: List[
             transformation_function.TransformationFunction
         ] = []
-        self._on_demand_transformation_functions: List[
+        self._on_demand_feature_transformation_functions: List[
+            transformation_function.TransformationFunction
+        ] = []
+        self._on_demand_primary_key_transformation_functions: List[
             transformation_function.TransformationFunction
         ] = []
         self._sql_client = None
@@ -266,17 +269,25 @@ class VectorServer:
             if tf.hopsworks_udf.transformation_features[0] not in entity.labels
         ]
 
-        self._on_demand_transformation_functions = []
+        self._on_demand_feature_transformation_functions = []
+        self._on_demand_primary_key_transformation_functions = []
 
         for feature in entity.features:
             if (
                 feature.on_demand_transformation_function
                 and feature.on_demand_transformation_function
-                not in self._on_demand_transformation_functions
+                not in self._on_demand_feature_transformation_functions
+                and feature.on_demand_transformation_function
+                not in self._on_demand_primary_key_transformation_functions
             ):
-                self._on_demand_transformation_functions.append(
-                    feature.on_demand_transformation_function
-                )
+                if feature.name in self.valid_serving_keys:
+                    self._on_demand_primary_key_transformation_functions.append(
+                        feature.on_demand_transformation_function
+                    )
+                else:
+                    self._on_demand_feature_transformation_functions.append(
+                        feature.on_demand_transformation_function
+                    )
 
         self._on_demand_feature_names = [
             feature.name
@@ -327,7 +338,12 @@ class VectorServer:
         )
 
     def check_missing_request_parameters(
-        self, features: Dict[str, Any], request_parameters: Dict[str, Any]
+        self,
+        features: Dict[str, Any],
+        request_parameters: Dict[str, Any],
+        transformation_functions: List[
+            transformation_function.TransformationFunction
+        ] = None,
     ):
         """
         Check if any request parameters required for computing on-demand features are missing.
@@ -339,7 +355,7 @@ class VectorServer:
         available_parameters = set((features | request_parameters).keys())
         missing_request_parameters_features = {}
 
-        for on_demand_transformation in self._on_demand_transformation_functions:
+        for on_demand_transformation in transformation_functions:
             feature_name_prefix = (
                 on_demand_transformation.hopsworks_udf.feature_name_prefix
             )
@@ -416,6 +432,20 @@ class VectorServer:
             for key, value in entry.items():
                 request_parameters.setdefault(key, value)
 
+        if self._on_demand_primary_key_transformation_functions:
+            self.check_missing_request_parameters(
+                features=entry or {},
+                request_parameters=request_parameters,
+                transformation_functions=self._on_demand_primary_key_transformation_functions,
+            )
+
+            entry = self.apply_on_demand_transformations(
+                entry or {},
+                request_parameters,
+                transformation_context,
+                self._on_demand_primary_key_transformation_functions,
+            )
+
         rondb_entry = self.validate_entry(
             entry=entry,
             allow_missing=allow_missing,
@@ -435,6 +465,9 @@ class VectorServer:
         else:
             _logger.debug("get_feature_vector Online SQL client")
             serving_vector = self.sql_client.get_single_feature_vector(rondb_entry)
+            if allow_missing and not serving_vector:
+                # Adding serving key to the serving vector if allow_missing is True, since it could have been computed on-demand. It would be filtered out later if it is not present in the feature vector.
+                serving_vector = rondb_entry
 
         self._raise_transformation_warnings(
             transform=transform, on_demand_features=on_demand_features
@@ -528,6 +561,19 @@ class VectorServer:
             transform=transform, on_demand_features=on_demand_features
         )
 
+        if self._on_demand_primary_key_transformation_functions:
+            self.check_missing_request_parameters(
+                features=entry or {},
+                request_parameters=request_parameters,
+                transformation_functions=self._on_demand_primary_key_transformation_functions,
+            )
+
+            entry = self.apply_on_demand_transformations(
+                entry or {},
+                request_parameters,
+                transformation_context,
+                self._on_demand_primary_key_transformation_functions,
+            )
         for (idx, entry), passed, vector_features in itertools.zip_longest(
             enumerate(entries),
             passed_features,
@@ -877,7 +923,10 @@ class VectorServer:
         # Returns
             `Union[List[Any], List[List[Any]], pd.DataFrame, pl.DataFrame]`: The feature vector that contains all on-demand features in the feature view.
         """
-        if not self._on_demand_transformation_functions:
+        if (
+            not self._on_demand_feature_transformation_functions
+            and not self._on_demand_primary_key_transformation_functions
+        ):
             warnings.warn(
                 "Feature view does not have any on-demand features. Returning input feature vectors.",
                 stacklevel=1,
@@ -902,7 +951,10 @@ class VectorServer:
             else request_parameters
         )
         self.check_missing_request_parameters(
-            features=feature_vectors[0], request_parameters=request_parameters[0]
+            features=feature_vectors[0],
+            request_parameters=request_parameters[0],
+            transformation_functions=self._on_demand_primary_key_transformation_functions
+            + self._on_demand_feature_transformation_functions,
         )
         on_demand_feature_vectors = []
         for feature_vector, request_parameter in zip(
@@ -912,6 +964,8 @@ class VectorServer:
                 feature_vector,
                 request_parameter,
                 transformation_context=transformation_context,
+                transformation_functions=self._on_demand_primary_key_transformation_functions
+                + self._on_demand_feature_transformation_functions,
             )
             on_demand_feature_vectors.append(
                 [
@@ -1188,9 +1242,12 @@ class VectorServer:
         rows: Union[dict, pd.DataFrame],
         request_parameter: Dict[str, Any],
         transformation_context: Dict[str, Any] = None,
+        transformation_functions: List[
+            transformation_function.TransformationFunction
+        ] = None,
     ) -> dict:
         _logger.debug("Applying On-Demand transformation functions.")
-        for tf in self._on_demand_transformation_functions:
+        for tf in transformation_functions:
             # Setting transformation function context variables.
             tf.hopsworks_udf.transformation_context = transformation_context
 
@@ -1344,12 +1401,17 @@ class VectorServer:
         if transform or on_demand_features:
             # Check for any missing request parameters
             self.check_missing_request_parameters(
-                features=row_dict, request_parameters=request_parameter
+                features=row_dict,
+                request_parameters=request_parameter,
+                transformation_functions=self._on_demand_feature_transformation_functions,
             )
 
-            # Apply on-demand transformations
+            # Apply on-demand transformations. Not applying on-demand transformations for primary ket features as it would have already been applied at this point.
             encoded_feature_dict = self.apply_on_demand_transformations(
-                row_dict, request_parameter, transformation_context
+                row_dict,
+                request_parameter,
+                transformation_context,
+                self._on_demand_feature_transformation_functions,
             )
 
         if transform:
@@ -1756,7 +1818,10 @@ class VectorServer:
     def on_demand_transformation_functions(
         self,
     ) -> Optional[List[transformation_function.TransformationFunction]]:
-        return self._on_demand_transformation_functions
+        return (
+            self._on_demand_primary_key_transformation_functions
+            + self._on_demand_feature_transformation_functions
+        )
 
     @property
     def return_feature_value_handlers(self) -> Dict[str, Callable]:
