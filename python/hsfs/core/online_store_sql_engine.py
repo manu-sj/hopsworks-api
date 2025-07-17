@@ -605,6 +605,7 @@ class OnlineStoreSqlClient:
         )
         return connection_pool
 
+    @profile
     async def _query_async_sql(
         self,
         stmt,
