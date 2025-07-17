@@ -48,6 +48,8 @@ if HAS_SQLALCHEMY:
 if HAS_AIOMYSQL and HAS_SQLALCHEMY:
     from hsfs.core import util_sql
 
+from line_profiler import profile
+
 
 _logger = logging.getLogger(__name__)
 
@@ -628,6 +630,7 @@ class OnlineStoreSqlClient:
 
         return resultset
 
+    @profile
     async def _execute_prep_statements(
         self,
         prepared_statements: Dict[int, str],
