@@ -307,6 +307,7 @@ class OnlineStoreSqlClient:
             entries, self.parametrised_prepared_statements[self.BATCH_HELPER_KEY]
         )
 
+    @profile
     def _single_vector_result(
         self, entry: Dict[str, Any], prepared_statement_objects: Dict[int, sql.text]
     ) -> Dict[str, Any]:

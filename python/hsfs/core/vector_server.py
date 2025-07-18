@@ -63,6 +63,7 @@ from hsfs.core import (
     transformation_function_engine as tf_engine_mod,
 )
 from hsfs.hopsworks_udf import UDFExecutionMode
+from line_profiler.explicit_profiler import profile
 
 
 if HAS_NUMPY:
@@ -394,6 +395,7 @@ class VectorServer:
             )
             raise exceptions.FeatureStoreException(error)
 
+    @profile
     def get_feature_vector(
         self,
         entry: Dict[str, Any],
@@ -466,6 +468,7 @@ class VectorServer:
             on_demand_feature=on_demand_features,
         )
 
+    @profile
     def get_feature_vectors(
         self,
         entries: List[Dict[str, Any]],
