@@ -468,7 +468,6 @@ class VectorServer:
             on_demand_feature=on_demand_features,
         )
 
-    @profile
     def get_feature_vectors(
         self,
         entries: List[Dict[str, Any]],
