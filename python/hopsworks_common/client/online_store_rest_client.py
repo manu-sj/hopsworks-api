@@ -313,7 +313,7 @@ class OnlineStoreRestClientSingleton:
     ) -> requests.Response:
         url = self._base_url.copy()
         url.path.segments.extend(path_params)
-        print(f"Sending {method} request to {url.url}.")
+        # print(f"Sending {method} request to {url.url}.")
         if _logger.isEnabledFor(logging.DEBUG):
             _logger.debug(f"Provided Data: {data}")
             _logger.debug(f"Provided Headers: {headers}")
