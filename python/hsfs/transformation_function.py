@@ -51,6 +51,9 @@ class TransformationFunction:
     NOT_FOUND_ERROR_CODE = 270160
     """
     DTO class for transformation functions, that is used to store and retrieve transformation functions from the backend.
+    A transformation function is created in Hopsworks in two cases
+       - When a UDF created using the `@udf` decorator is attached to a feature view/feature group.
+       - If a transformation function is fetched or saved from the backend.
 
     # Arguments
         featurestore_id : `int`. Id of the feature store in which the transformation function is saved.
@@ -256,6 +259,11 @@ class TransformationFunction:
     def alias(self, *args: str):
         """
         Set the names of the transformed features output by the transformation function.
+
+        # Arguments
+            args: `str`. The names of the output features returned from the UDF.
+        # Returns
+            `TransformationFunction`: The transformation function object with the updated output feature names.
         """
         self.__hopsworks_udf.alias(*args)
 
@@ -377,7 +385,6 @@ class TransformationFunction:
 
     @property
     def transformation_type(self) -> TransformationType:
-        # TODO: Manu - Add links to concept documentation for model dependent and on-demand transformations.
         """Type of the Transformation : Can be \"model dependent\" or \"on-demand\" """
         return self._transformation_type
 

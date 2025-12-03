@@ -26,7 +26,7 @@ class FeatureTransformationStatistics:
     """
     Class that stores the statistics for a single feature that is used inside a transformation function.
 
-    These statistics are computed on the training data that is generated from a feature view.
+    These statistics are computed when a training dataset is generated from a feature view.
     """
 
     def __init__(
@@ -180,8 +180,7 @@ class FeatureTransformationStatistics:
 
     @property
     def correlations(self) -> Optional[dict]:
-        # TODO: MANU need to check this out. I am not really sure what this looks like. I think it is the correlation between the current feature and all other features in the training data.
-        """Correlations of feature values."""
+        """The Correlations of feature values with other features in the training data."""
         return self._correlations
 
     @property
