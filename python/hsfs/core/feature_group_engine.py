@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from hsfs import engine, feature, util
 from hsfs import feature_group as fg
@@ -23,6 +23,12 @@ from hsfs.client import exceptions
 from hsfs.core import delta_engine, feature_group_base_engine, hudi_engine
 from hsfs.core.deltastreamer_jobconf import DeltaStreamerJobConf
 from hsfs.core.schema_validation import DataFrameValidator
+
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    from hsfs.transformation_function import TransformationFunction
 
 
 class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
@@ -148,6 +154,24 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             ),
             ge_report,
         )
+
+    def apply_on_demand_transformations(
+        self,
+        transformation_functions: List[TransformationFunction],
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict[str, Any]]],
+        online: Optional[bool] = None,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        """
+        Apply on-demand transformations to the passed dataframe or list of dictionaries.
+        # Arguments
+            feature_group: fg.FeatureGroup. The feature group to apply the on-demand transformations to.
+        # Returns
+            `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
+        """
+        df = engine.get_instance()._apply_transformation_function(
+            transformation_functions, data, online=online
+        )
+        return df
 
     def insert(
         self,

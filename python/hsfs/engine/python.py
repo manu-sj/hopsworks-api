@@ -1524,6 +1524,21 @@ class Engine:
                 f.write(bytesio_object.getbuffer())
         return local_file
 
+    def shallow_copy_dataframe(
+        self, dataframe: Union[pd.DataFrame, pl.DataFrame]
+    ) -> Union[pd.DataFrame, pl.DataFrame]:
+        if HAS_POLARS and (
+            isinstance(dataframe, pl.DataFrame)
+            or isinstance(dataframe, pl.dataframe.frame.DataFrame)
+        ):
+            return dataframe.clone()
+        elif HAS_PANDAS and isinstance(dataframe, pd.DataFrame):
+            return dataframe.copy()
+        else:
+            raise ValueError(
+                f"Dataframe type {type(dataframe)} not supported in the Python engine."
+            )
+
     def _apply_transformation_function(
         self,
         transformation_functions: list[transformation_function.TransformationFunction],

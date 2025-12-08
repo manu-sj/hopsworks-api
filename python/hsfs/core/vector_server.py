@@ -533,25 +533,19 @@ class VectorServer:
             passed_features is None
             or len(passed_features) == 0
             or len(passed_features) == len(entries)
-        ), (
-            "Passed features should be None, empty or have the same length as the entries"
-        )
+        ), "Passed features should be None, empty or have the same length as the entries"
         assert (
             vector_db_features is None
             or len(vector_db_features) == 0
             or len(vector_db_features) == len(entries)
-        ), (
-            "Vector DB features should be None, empty or have the same length as the entries"
-        )
+        ), "Vector DB features should be None, empty or have the same length as the entries"
         assert (
             request_parameters is None
             or len(request_parameters) == 0
             or isinstance(request_parameters, dict)
             or not entries
             or len(request_parameters) == len(entries)
-        ), (
-            "Request Parameters should be a Dictionary, None, empty or have the same length as the entries if they are not None or empty."
-        )
+        ), "Request Parameters should be a Dictionary, None, empty or have the same length as the entries if they are not None or empty."
 
         # Create logging meta data object if required and populate it during the function.
         logging_meta_data = (
@@ -1279,8 +1273,6 @@ class VectorServer:
         request_parameter: dict[str, Any],
         transformation_context: dict[str, Any] = None,
     ) -> dict:
-        if _logger.isEnabledFor(logging.DEBUG):
-            _logger.debug("Applying On-Demand transformation functions.")
         for tf in self._on_demand_transformation_functions:
             # Setting transformation function context variables.
             tf.hopsworks_udf.transformation_context = transformation_context

@@ -19,6 +19,7 @@ import ast
 import copy
 import inspect
 import json
+import logging
 import re
 import warnings
 from dataclasses import dataclass
@@ -38,6 +39,8 @@ from packaging.version import Version
 
 if TYPE_CHECKING:
     from hsfs.core.feature_descriptive_statistics import FeatureDescriptiveStatistics
+
+_logger = logging.getLogger(__name__)
 
 
 class UDFExecutionMode(Enum):
@@ -842,8 +845,55 @@ def renaming_wrapper(*args):
             f"Invalid execution mode '{self.execution_mode}' for UDF '{self.function_name}'."
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert class into a dictionary.
+    def execute(
+        self,
+        args: Optional[Tuple],
+        statistics: TransformationStatistics = None,
+        context: Dict[str, Any] = None,
+        online: bool = False,
+    ) -> Any:
+        """
+        Execute a UDF to obtains the resulting values.
+
+        # Arguments
+            args: `Tuple`. Arguments to be passed to the UDF.
+            statistics: `TransformationStatistics`. Statistics to be passed to the UDF.
+            context: `Dict[str, Any]`. Context to be passed to the UDF.
+            online: `bool`. Specify if the UDF is to be executed online.
+        # Returns
+            `Any`: Result of the UDF.
+        """
+        # Fetch existing stateful information in the UDF.
+        existing_context = self.transformation_context
+        existing_statistics = self.transformation_statistics
+        existing_output_column_names = self.output_column_names
+
+        # Set new state for the UDF.
+        if context:
+            self.transformation_context = context
+        if statistics:
+            self.transformation_statistics = statistics
+        if not self.output_column_names:
+            self.output_column_names = [
+                f"col_{i}" for i in range(len(self.return_types))
+            ]
+
+        args = args if isinstance(args, tuple) else (args,)
+
+        outputs = self.get_udf(online=online)(*args)
+
+        # Reset the state to initial state.
+        # This is required because during serving we setup the UDF with required statistics when the feature view is initialized for serving.
+        if existing_statistics:
+            self.transformation_statistics = existing_statistics
+        self.transformation_context = existing_context
+        self.output_column_names = existing_output_column_names
+
+        return outputs
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert class into a dictionary.
 
         Returns:
             Dictionary that contains all data required to json serialize the object.
@@ -1109,14 +1159,30 @@ def renaming_wrapper(*args):
 
     @transformation_statistics.setter
     def transformation_statistics(
-        self, statistics: list[FeatureDescriptiveStatistics]
+        self,
+        statistics: Union[
+            List[FeatureDescriptiveStatistics],
+            Dict[str, Dict[str, Any]],
+            TransformationStatistics,
+        ],
     ) -> None:
-        self._statistics = TransformationStatistics(*self._statistics_argument_names)
-        for stat in statistics:
-            if stat.feature_name in self._statistics_argument_mapping:
-                self._statistics.set_statistics(
-                    self._statistics_argument_mapping[stat.feature_name], stat.to_dict()
-                )
+        if isinstance(statistics, TransformationStatistics):
+            self._statistics = statistics
+        elif isinstance(statistics, dict):
+            self._statistics = TransformationStatistics(*statistics.keys())
+            for key, value in statistics.items():
+                value["feature_name"] = key
+                self._statistics.set_statistics(key, value)
+        else:
+            self._statistics = TransformationStatistics(
+                *self._statistics_argument_names
+            )
+            for stat in statistics:
+                if stat.feature_name in self._statistics_argument_mapping.keys():
+                    self._statistics.set_statistics(
+                        self._statistics_argument_mapping[stat.feature_name],
+                        stat.to_dict(),
+                    )
 
     @output_column_names.setter
     def output_column_names(self, output_col_names: str | list[str]) -> None:

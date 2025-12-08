@@ -15,8 +15,17 @@
 #
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypeVar, Union
 
+import pandas as pd
+from hsfs import (
+    engine,
+    exceptions,
+    feature_view,
+    statistics,
+    training_dataset,
+    transformation_function,
+)
 from hsfs.core import transformation_function_api
 
 
@@ -24,6 +33,7 @@ if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
     from hsfs import feature_view, statistics, training_dataset, transformation_function
+    import pyspark.sql as spark_sql
 
 
 class TransformationFunctionEngine:
@@ -96,6 +106,54 @@ class TransformationFunctionEngine:
         ) in transformation_fn_instances:  # todo what is the point of this?
             transformation_fns.append(transformation_fn_instance)
         return transformation_fns
+
+    def apply(
+        self,
+        transformation_function: transformation_function.TransformationFunction,
+        data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        transformation_context: Dict[str, Any] = None,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        execution_engine = engine.get_instance()
+
+        if execution_engine.check_supported_dataframe(data):
+            data = execution_engine.shallow_copy_dataframe(data)
+            is_dataframe = True
+        elif isinstance(data, (dict, list)):
+            data = data.copy()
+            is_dataframe = False
+        else:
+            raise exceptions.FeatureStoreException(
+                f"Dataframe type {type(data)} not supported in the engine."
+            )
+
+        udf = transformation_function.hopsworks_udf.get_udf(online=False)
+
+        udf.transformation_context = transformation_context
+
+        if is_dataframe:
+            missing_features: set[str] = set(udf.transformation_features) - set(
+                data.columns
+            )
+        else:
+            # TODO: Handle list of dictionaries
+            pass
+
+        if missing_features:
+            if (
+                transformation_function.transformation_type
+                == transformation_function.TransformationType.ON_DEMAND
+            ):
+                # On-demand transformation are applied using the python/spark engine during insertion, the transformation while retrieving feature vectors are performed in the vector_server.
+                raise exceptions.FeatureStoreException(
+                    f"The following feature(s): `{'`, '.join(missing_features)}`, specified in the on-demand transformation function '{udf.function_name}' are not present in the dataframe being inserted into the feature group. "
+                    + "Please verify that the correct feature names are used in the transformation function and that these features exist in the dataframe being inserted."
+                )
+            else:
+                raise exceptions.FeatureStoreException(
+                    f"The following feature(s): `{'`, '.join(missing_features)}`, specified in the model-dependent transformation function '{udf.function_name}' are not present in the feature view. Please verify that the correct features are specified in the transformation function."
+                )
+
+        pass
 
     def delete(
         self,

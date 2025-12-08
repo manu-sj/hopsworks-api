@@ -4062,6 +4062,23 @@ class FeatureGroup(FeatureGroupBase):
             and self._time_travel_format.upper() != "NONE"
         )
 
+    def apply_on_demand_transformations(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict[str, Any]]],
+        online: Optional[bool] = None,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        """
+        Apply on-demand transformations to the passed dataframe or list of dictionaries.
+        # Arguments
+            feature_group: `FeatureGroup`. The feature group to apply the on-demand transformations to.
+        # Returns
+            `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
+        """
+        df = self._feature_group_engine.apply_on_demand_transformations(
+            self, self.transformation_functions, data, online
+        )
+        return df
+
     @property
     def id(self) -> int | None:
         """Feature group id."""
