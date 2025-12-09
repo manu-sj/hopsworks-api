@@ -1619,6 +1619,23 @@ class Engine:
                 )
         return dataset.drop(dropped_features, axis=1)
 
+    def _apply_udf_on_dataframe(
+        self,
+        udf: HopsworksUdf,
+        dataframe: Union[pd.DataFrame, pl.DataFrame],
+        online: bool = False,
+    ) -> Union[pd.DataFrame, pl.DataFrame]:
+        """
+        Apply a udf to a dataframe
+        """
+        if (
+            udf.execution_mode.get_current_execution_mode(online=online)
+            == UDFExecutionMode.PANDAS
+        ):
+            return self._apply_pandas_udf(udf=udf, dataframe=dataframe)
+        else:
+            return self._apply_python_udf(udf=udf, dataframe=dataframe)
+
     def _apply_python_udf(
         self,
         hopsworks_udf: HopsworksUdf,
@@ -1657,7 +1674,10 @@ class Engine:
                         cols.pop(cols.index(hopsworks_udf.output_column_names[0]))
                     )
                     dataframe = dataframe[cols]
-        else:
+        elif HAS_POLARS and (
+            isinstance(dataframe, pl.DataFrame)
+            or isinstance(dataframe, pl.dataframe.frame.DataFrame)
+        ):
             # Dynamically creating lambda function so that we do not need to loop though to extract features required for the udf.
             # This is done because polars 'map_rows' provides rows as tuples to the udf.
             transformation_features = ", ".join(
@@ -1699,6 +1719,19 @@ class Engine:
         Raises:
             `hopsworks.client.exceptions.FeatureStoreException`: If any of the features mentioned in the transformation function is not present in the Feature View.
         """
+        # Cast to pandas if polars dataframe to avoid errors when applying the pandas UDF.
+        if HAS_POLARS and (
+            isinstance(dataframe, pl.DataFrame)
+            or isinstance(dataframe, pl.dataframe.frame.DataFrame)
+        ):
+            # Converting polars dataframe to pandas because currently we support only pandas UDF's as transformation functions.
+            if HAS_PYARROW:
+                dataset = dataframe.to_pandas(
+                    use_pyarrow_extension_array=True
+                )  # Zero copy if pyarrow extension can be used.
+            else:
+                dataset = dataset.to_pandas(use_pyarrow_extension_array=False)
+
         if len(hopsworks_udf.return_types) > 1:
             dataframe[hopsworks_udf.output_column_names] = hopsworks_udf.get_udf(
                 online=False

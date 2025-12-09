@@ -18,15 +18,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypeVar, Union
 
 import pandas as pd
+from hopsworks_common.client import exceptions
 from hsfs import (
     engine,
-    exceptions,
     feature_view,
     statistics,
     training_dataset,
     transformation_function,
 )
 from hsfs.core import transformation_function_api
+from hsfs.hopsworks_udf import HopsworksUdf, UDFExecutionMode
 
 
 if TYPE_CHECKING:
@@ -107,53 +108,96 @@ class TransformationFunctionEngine:
             transformation_fns.append(transformation_fn_instance)
         return transformation_fns
 
-    def apply(
+    def apply_transformation_functions(
         self,
-        transformation_function: transformation_function.TransformationFunction,
+        transformation_functions: List[transformation_function.TransformationFunction],
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
-        transformation_context: Dict[str, Any] = None,
+        online: bool = False,
+        transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
-        execution_engine = engine.get_instance()
+        dropped_features: set[str] = set()
 
-        if execution_engine.check_supported_dataframe(data):
-            data = execution_engine.shallow_copy_dataframe(data)
-            is_dataframe = True
-        elif isinstance(data, (dict, list)):
-            data = data.copy()
-            is_dataframe = False
+        if isinstance(data, dict):
+            transformed_data = data.copy()
+        elif engine.get_instance().check_supported_dataframe(data):
+            transformed_data = engine.get_instance().shallow_copy_dataframe(data)
         else:
             raise exceptions.FeatureStoreException(
                 f"Dataframe type {type(data)} not supported in the engine."
             )
 
-        udf = transformation_function.hopsworks_udf.get_udf(online=False)
+        for tf in transformation_functions:
+            udf = tf.hopsworks_udf
 
-        udf.transformation_context = transformation_context
-
-        if is_dataframe:
-            missing_features: set[str] = set(udf.transformation_features) - set(
-                data.columns
-            )
-        else:
-            # TODO: Handle list of dictionaries
-            pass
-
-        if missing_features:
-            if (
-                transformation_function.transformation_type
-                == transformation_function.TransformationType.ON_DEMAND
-            ):
-                # On-demand transformation are applied using the python/spark engine during insertion, the transformation while retrieving feature vectors are performed in the vector_server.
-                raise exceptions.FeatureStoreException(
-                    f"The following feature(s): `{'`, '.join(missing_features)}`, specified in the on-demand transformation function '{udf.function_name}' are not present in the dataframe being inserted into the feature group. "
-                    + "Please verify that the correct feature names are used in the transformation function and that these features exist in the dataframe being inserted."
-                )
+            if engine.get_instance().check_supported_dataframe(data):
+                missing_features = set(udf.transformation_features) - set(data.columns)
             else:
+                missing_features = set(udf.transformation_features) - set(data.keys())
+            if missing_features:
                 raise exceptions.FeatureStoreException(
-                    f"The following feature(s): `{'`, '.join(missing_features)}`, specified in the model-dependent transformation function '{udf.function_name}' are not present in the feature view. Please verify that the correct features are specified in the transformation function."
+                    f"Cannot apply transformation function '{udf.function_name}' because the following features are missing: {'`, '.join(missing_features)}`"
                 )
 
-        pass
+            if udf.dropped_features:
+                dropped_features.update(udf.dropped_features)
+
+            transformed_data = self.execute_udf(
+                udf=udf, data=transformed_data, online=online
+            )
+
+        if isinstance(transformed_data, dict):
+            transformed_data = {
+                k: v for k, v in transformed_data.items() if k not in dropped_features
+            }
+        else:
+            transformed_data = engine.get_instance().drop_columns(
+                transformed_data, dropped_features
+            )
+
+        return transformed_data
+
+    def execute_udf(
+        self,
+        udf: HopsworksUdf,
+        data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        online: bool = False,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        execution_engine = engine.get_instance()
+
+        if execution_engine.check_supported_dataframe(data):
+            return engine.get_instance().apply_udf_on_dataframe(
+                udf=udf, dataframe=data, online=online
+            )
+        elif isinstance(data, dict):
+            data = data.copy()
+            return self.apply_udf_on_dict(udf=udf, data=data, online=online)
+        else:
+            raise exceptions.FeatureStoreException(
+                f"Dataframe type {type(data)} not supported in the engine."
+            )
+
+    def apply_udf_on_dict(
+        self,
+        udf: HopsworksUdf,
+        data: Dict[str, Any],
+        online: bool = False,
+    ) -> Dict[str, Any]:
+        features = []
+
+        for unprefixed_feature in udf.unprefixed_transformation_features:
+            prefixed_feature = udf.feature_name_prefix + unprefixed_feature
+            feature_value = data.get(prefixed_feature, data.get(unprefixed_feature))
+
+            if (
+                udf.execution_mode.get_current_execution_mode(online=online)
+                == UDFExecutionMode.PANDAS
+            ):
+                features.append(pd.Series(feature_value))
+            else:
+                features.append(feature_value)
+
+        transformed_result = udf.get_udf(online=online)(*features)
+        return transformed_result
 
     def delete(
         self,

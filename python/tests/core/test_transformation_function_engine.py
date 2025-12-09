@@ -486,3 +486,18 @@ class TestTransformationFunctionEngine:
 
         # Assert
         assert mock_s_engine.return_value.get.call_count == 1
+
+    def test_execute_udf(self, mocker):
+        @udf(int)
+        def add_one(col1):
+            return col1 + 1
+
+        mocker.patch("hopsworks_common.client.get_instance")
+
+        tf_engine = transformation_function_engine.TransformationFunctionEngine(
+            feature_store_id=99
+        )
+
+        tf_engine.execute_udf(
+            udf=add_one, data=pd.DataFrame(data={"col1": [1, 2, 3]}), online=False
+        )
