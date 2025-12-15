@@ -681,7 +681,6 @@ def renaming_wrapper(*args):
             _date_time_output_columns=date_time_output_columns
         )
 
-        # executing code
         exec(code, scope)
 
         # returning executed function object
@@ -845,11 +844,10 @@ def renaming_wrapper(*args):
             f"Invalid execution mode '{self.execution_mode}' for UDF '{self.function_name}'."
         )
 
-    def execute(
+    def executor(
         self,
-        args: Optional[Tuple],
         statistics: TransformationStatistics = None,
-        context: Dict[str, Any] = None,
+        transformation_context: Dict[str, Any] = None,
         online: bool = False,
     ) -> Any:
         """
@@ -864,32 +862,29 @@ def renaming_wrapper(*args):
             `Any`: Result of the UDF.
         """
         # Fetch existing stateful information in the UDF.
-        existing_context = self.transformation_context
-        existing_statistics = self.transformation_statistics
-        existing_output_column_names = self.output_column_names
+        udf = copy.deepcopy(self)
 
-        # Set new state for the UDF.
-        if context:
-            self.transformation_context = context
+        udf.transformation_context = (
+            transformation_context
+            if transformation_context
+            else udf.transformation_context
+        )
         if statistics:
-            self.transformation_statistics = statistics
-        if not self.output_column_names:
-            self.output_column_names = [
-                f"col_{i}" for i in range(len(self.return_types))
-            ]
+            udf.transformation_statistics = statistics
+        udf.output_column_names = (
+            udf.output_column_names
+            if udf.output_column_names
+            else [f"col_{i}" for i in range(len(udf.return_types))]
+        )
 
-        args = args if isinstance(args, tuple) else (args,)
+        executable = udf.get_udf(online=online)
 
-        outputs = self.get_udf(online=online)(*args)
+        executable.execute = executable.__call__
 
-        # Reset the state to initial state.
-        # This is required because during serving we setup the UDF with required statistics when the feature view is initialized for serving.
-        if existing_statistics:
-            self.transformation_statistics = existing_statistics
-        self.transformation_context = existing_context
-        self.output_column_names = existing_output_column_names
+        return executable
 
-        return outputs
+    def execute(self, *args, **kwargs) -> Any:
+        return self.executor().execute(*args, **kwargs)
 
     def to_dict(self) -> Dict[str, Any]:
         """

@@ -108,35 +108,92 @@ class TransformationFunctionEngine:
             transformation_fns.append(transformation_fn_instance)
         return transformation_fns
 
+    def _validate_transformation_function_arguments(
+        self,
+        transformation_functions: List[transformation_function.TransformationFunction],
+        data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        request_parameters: Dict[str, Any] = None,
+    ) -> None:
+        for tf in transformation_functions:
+            if engine.get_instance().check_supported_dataframe(data):
+                missing_features = set(tf.hopsworks_udf.transformation_features) - set(
+                    data.columns
+                )
+            elif isinstance(data, dict):
+                missing_features = set(tf.hopsworks_udf.transformation_features) - set(
+                    data.keys()
+                )
+            else:
+                raise exceptions.FeatureStoreException(
+                    f"Dataframe type {type(data)} not supported in the engine."
+                )
+
+            if request_parameters:
+                missing_features = missing_features - set(request_parameters.keys())
+
+            if missing_features:
+                raise exceptions.TransformationFunctionException(
+                    message=f"The following feature(s): `{', '.join(missing_features)}`, required for the transformation function '{tf.hopsworks_udf.function_name}' are not available.",
+                    missing_features=missing_features,
+                    transformation_function_name=tf.hopsworks_udf.function_name,
+                    transformation_type=tf.transformation_type.value,
+                )
+
     def apply_transformation_functions(
         self,
         transformation_functions: List[transformation_function.TransformationFunction],
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         online: bool = False,
         transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
+        request_parameters: Dict[str, Any] = None,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        self._validate_transformation_function_arguments(
+            transformation_functions=transformation_functions,
+            data=data,
+            request_parameters=request_parameters,
+        )
+
+        if isinstance(data, dict) or engine.get_type() != "spark":
+            # If the data is a dictionary or if the engine is not spark, we execute the transformation functions using.
+            return self._apply_transformation_functions(
+                transformation_functions=transformation_functions,
+                data=data,
+                online=online,
+                transformation_context=transformation_context,
+                request_parameters=request_parameters,
+            )
+        else:
+            # In the case of spark, we execute the transformation functions using the spark engine since the transformations are pushed down to Spark and are not executed in Python.
+            return engine.get_instance()._apply_transformation_functions(
+                transformation_functions=transformation_functions,
+                data=data,
+                online=online,
+                transformation_context=transformation_context,
+                request_parameters=request_parameters,
+            )
+
+    def _apply_transformation_functions(
+        self,
+        transformation_functions: List[transformation_function.TransformationFunction],
+        data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        online: bool = False,
+        transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
+        request_parameters: Dict[str, Any] = None,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
         dropped_features: set[str] = set()
 
         if isinstance(data, dict):
             transformed_data = data.copy()
-        elif engine.get_instance().check_supported_dataframe(data):
-            transformed_data = engine.get_instance().shallow_copy_dataframe(data)
         else:
-            raise exceptions.FeatureStoreException(
-                f"Dataframe type {type(data)} not supported in the engine."
-            )
+            transformed_data = engine.get_instance().shallow_copy_dataframe(data)
+
+        if request_parameters:
+            for key in request_parameters:
+                transformed_data[key] = request_parameters[key]
 
         for tf in transformation_functions:
             udf = tf.hopsworks_udf
-
-            if engine.get_instance().check_supported_dataframe(data):
-                missing_features = set(udf.transformation_features) - set(data.columns)
-            else:
-                missing_features = set(udf.transformation_features) - set(data.keys())
-            if missing_features:
-                raise exceptions.FeatureStoreException(
-                    f"Cannot apply transformation function '{udf.function_name}' because the following features are missing: {'`, '.join(missing_features)}`"
-                )
+            udf.transformation_context = transformation_context
 
             if udf.dropped_features:
                 dropped_features.update(udf.dropped_features)
@@ -163,13 +220,11 @@ class TransformationFunctionEngine:
         online: bool = False,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
         execution_engine = engine.get_instance()
-
         if execution_engine.check_supported_dataframe(data):
-            return engine.get_instance().apply_udf_on_dataframe(
+            return execution_engine.apply_udf_on_dataframe(
                 udf=udf, dataframe=data, online=online
             )
         elif isinstance(data, dict):
-            data = data.copy()
             return self.apply_udf_on_dict(udf=udf, data=data, online=online)
         else:
             raise exceptions.FeatureStoreException(
@@ -180,12 +235,21 @@ class TransformationFunctionEngine:
         self,
         udf: HopsworksUdf,
         data: Dict[str, Any],
-        online: bool = False,
+        online: Optional[bool] = True,
     ) -> Dict[str, Any]:
         features = []
 
+        if not online and engine.get_type() == "spark":
+            raise exceptions.FeatureStoreException(
+                "Cannot apply transformation functions on a dictionary in offline mode when the engine is spark. Please use the python engine or use the online mode."
+            )
+
         for unprefixed_feature in udf.unprefixed_transformation_features:
-            prefixed_feature = udf.feature_name_prefix + unprefixed_feature
+            prefixed_feature = (
+                udf.feature_name_prefix + unprefixed_feature
+                if udf.feature_name_prefix
+                else unprefixed_feature
+            )
             feature_value = data.get(prefixed_feature, data.get(unprefixed_feature))
 
             if (
@@ -197,7 +261,28 @@ class TransformationFunctionEngine:
                 features.append(feature_value)
 
         transformed_result = udf.get_udf(online=online)(*features)
-        return transformed_result
+
+        if (
+            udf.execution_mode.get_current_execution_mode(online=online)
+            == UDFExecutionMode.PANDAS
+        ):
+            # Pandas UDF return can return a pandas series or a pandas dataframe, so we need to cast it back to a dictionary.
+            if isinstance(transformed_result, pd.Series):
+                data[transformed_result.name] = transformed_result.values[0]
+            else:
+                for col in transformed_result:
+                    data[col] = transformed_result[col].values[0]
+        else:
+            # Python UDF return can return a tuple or a list, so we need to cast it back to a dictionary.
+            if isinstance(transformed_result, tuple) or isinstance(
+                transformed_result, list
+            ):
+                for index, result in enumerate(transformed_result):
+                    data[udf.output_column_names[index]] = result
+            else:
+                data[udf.output_column_names[0]] = transformed_result
+
+        return data
 
     def delete(
         self,

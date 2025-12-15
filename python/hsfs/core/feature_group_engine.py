@@ -17,10 +17,15 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
+from hopsworks_common.client import exceptions
 from hsfs import engine, feature, util
 from hsfs import feature_group as fg
-from hsfs.client import exceptions
-from hsfs.core import delta_engine, feature_group_base_engine, hudi_engine
+from hsfs.core import (
+    delta_engine,
+    feature_group_base_engine,
+    hudi_engine,
+    transformation_function_engine,
+)
 from hsfs.core.deltastreamer_jobconf import DeltaStreamerJobConf
 from hsfs.core.schema_validation import DataFrameValidator
 
@@ -34,6 +39,9 @@ if TYPE_CHECKING:
 class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
     def __init__(self, feature_store_id: int):
         super().__init__(feature_store_id)
+        self._transformation_function_engine: transformation_function_engine.TransformationFunctionEngine = transformation_function_engine.TransformationFunctionEngine(
+            feature_store_id
+        )
 
         # cache online feature store connector
         self._online_conn = None
@@ -82,6 +90,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         feature_group: fg.FeatureGroup | fg.ExternalFeatureGroup,
         feature_dataframe,
         write_options,
+        transformation_context: Dict[str, Any] = None,
         validation_options: dict = None,
     ):
         dataframe_features = engine.get_instance().parse_schema_feature_group(
@@ -97,8 +106,11 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         if feature_group.transformation_functions:
             if not isinstance(feature_group, fg.ExternalFeatureGroup):
                 feature_dataframe = (
-                    engine.get_instance()._apply_transformation_function(
-                        feature_group.transformation_functions, feature_dataframe
+                    self._transformation_function_engine.apply_transformation_functions(
+                        transformation_functions=feature_group.transformation_functions,
+                        data=feature_dataframe,
+                        online=False,
+                        transformation_context=transformation_context,
                     )
                 )
             else:
@@ -160,6 +172,8 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         transformation_functions: List[TransformationFunction],
         data: Union[pd.DataFrame, pl.DataFrame, List[Dict[str, Any]]],
         online: Optional[bool] = None,
+        transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
+        request_parameters: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
         """
         Apply on-demand transformations to the passed dataframe or list of dictionaries.
@@ -168,9 +182,19 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         # Returns
             `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
         """
-        df = engine.get_instance()._apply_transformation_function(
-            transformation_functions, data, online=online
-        )
+        try:
+            df = self._transformation_function_engine.apply_transformation_functions(
+                transformation_functions=transformation_functions,
+                data=data,
+                online=online,
+                transformation_context=transformation_context,
+                request_parameters=request_parameters,
+            )
+        except exceptions.TransformationFunctionException as e:
+            raise exceptions.FeatureStoreException(
+                f"The following feature(s): {e.missing_features}, specified in the {e.transformation_type} transformation function '{e.transformation_function_name}' are not present in the feature group. "
+                + " Please verify that the correct features are specified in the transformation function."
+            ) from e
         return df
 
     def insert(
@@ -197,11 +221,20 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             and feature_group.transformation_functions
             and transform
         ):
-            feature_dataframe = engine.get_instance()._apply_transformation_function(
-                feature_group.transformation_functions,
-                feature_dataframe,
-                transformation_context=transformation_context,
-            )
+            try:
+                feature_dataframe = (
+                    self._transformation_function_engine.apply_transformation_functions(
+                        transformation_functions=feature_group.transformation_functions,
+                        data=feature_dataframe,
+                        transformation_context=transformation_context,
+                        online=False,
+                    )
+                )
+            except exceptions.TransformationFunctionException as e:
+                raise exceptions.FeatureStoreException(
+                    f"The following feature(s): {e.missing_features}, specified in the {e.transformation_type} transformation function '{e.transformation_function_name}'  are not present in the dataframe being inserted into the feature group. "
+                    + "Please verify that the correct feature names are used in the transformation function and that these features exist in the dataframe being inserted"
+                ) from e
 
             dataframe_features = (
                 self._update_feature_group_schema_on_demand_transformations(
@@ -447,11 +480,20 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         )
 
         if feature_group.transformation_functions and transform:
-            dataframe = engine.get_instance()._apply_transformation_function(
-                feature_group.transformation_functions,
-                dataframe,
-                transformation_context=transformation_context,
-            )
+            try:
+                dataframe = (
+                    self._transformation_function_engine.apply_transformation_functions(
+                        transformation_functions=feature_group.transformation_functions,
+                        data=dataframe,
+                        online=False,
+                        transformation_context=transformation_context,
+                    )
+                )
+            except exceptions.TransformationFunctionException as e:
+                raise exceptions.FeatureStoreException(
+                    f"The following feature(s): {e.missing_features}, specified in the {e.transformation_type} transformation function '{e.transformation_function_name}' are not present in the dataframe being inserted into the feature group. "
+                    + "Please verify that the correct feature names are used in the transformation function and that these features exist in the dataframe being inserted"
+                ) from e
 
         util.validate_embedding_feature_type(
             feature_group.embedding_index, dataframe_features

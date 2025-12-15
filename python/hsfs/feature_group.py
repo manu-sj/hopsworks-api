@@ -1798,9 +1798,17 @@ class FeatureGroupBase:
                 "Features are accessible by name."
             )
         feature = [f for f in self.__getattribute__("_features") if f.name == name]
+        transformations = [
+            tf.hopsworks_udf
+            for tf in self.__getattribute__("_transformation_functions")
+            if tf.hopsworks_udf.function_name == name
+        ]
         if len(feature) == 1:
             return feature[0]
-        raise KeyError(f"'FeatureGroup' object has no feature called '{name}'.")
+        elif len(transformations) == 1:
+            return transformations[0]
+        else:
+            raise KeyError(f"'FeatureGroup' object has no feature called '{name}'.")
 
     @property
     def statistics_config(self) -> StatisticsConfig:
@@ -3919,6 +3927,21 @@ class FeatureGroup(FeatureGroupBase):
             )
         return super().compute_statistics()
 
+    def apply_on_demand_transformations(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict[str, Any]]],
+        online: Optional[bool] = False,
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
+        """
+        Apply on-demand transformations to the passed dataframe or list of dictionaries.
+        """
+        return self._feature_group_engine.apply_on_demand_transformations(
+            self,
+            transformation_functions=self.transformation_functions,
+            data=data,
+            online=online,
+        )
+
     @classmethod
     def from_response_json(
         cls, json_dict: dict[str, Any] | list[dict[str, Any]]
@@ -4062,10 +4085,12 @@ class FeatureGroup(FeatureGroupBase):
             and self._time_travel_format.upper() != "NONE"
         )
 
-    def apply_on_demand_transformations(
+    def execute_odts(
         self,
         data: Union[pd.DataFrame, pl.DataFrame, List[Dict[str, Any]]],
         online: Optional[bool] = None,
+        transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
+        request_parameters: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
         """
         Apply on-demand transformations to the passed dataframe or list of dictionaries.
@@ -4074,9 +4099,18 @@ class FeatureGroup(FeatureGroupBase):
         # Returns
             `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
         """
-        df = self._feature_group_engine.apply_on_demand_transformations(
-            self, self.transformation_functions, data, online
-        )
+        if self.transformation_functions:
+            df = self._feature_group_engine.apply_on_demand_transformations(
+                transformation_functions=self.transformation_functions,
+                data=data,
+                online=online,
+                transformation_context=transformation_context,
+                request_parameters=request_parameters,
+            )
+        else:
+            _logger.info(
+                "No on-demand transformation functions attached to the feature group, no transformations applied."
+            )
         return df
 
     @property

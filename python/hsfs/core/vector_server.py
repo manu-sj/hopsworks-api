@@ -926,8 +926,11 @@ class VectorServer:
 
         transformed_feature_vectors = []
         for feature_vector in feature_vectors:
-            transformed_feature_vector = self.apply_model_dependent_transformations(
-                feature_vector, transformation_context=transformation_context
+            transformed_feature_vector = self._transformation_function_engine.apply_transformation_functions(
+                data=feature_vector,
+                online=True,
+                transformation_context=transformation_context,
+                transformation_functions=self.model_dependent_transformation_functions,
             )
             transformed_feature_vectors.append(
                 [
@@ -1004,10 +1007,14 @@ class VectorServer:
         for feature_vector, request_parameter in zip(
             feature_vectors, request_parameters
         ):
-            on_demand_feature_vector = self.apply_on_demand_transformations(
-                feature_vector,
-                request_parameter,
-                transformation_context=transformation_context,
+            on_demand_feature_vector = (
+                self._transformation_function_engine.apply_transformation_functions(
+                    data=feature_vector,
+                    online=True,
+                    transformation_context=transformation_context,
+                    request_parameters=request_parameter,
+                    transformation_functions=self.on_demand_transformation_functions,
+                )
             )
             on_demand_feature_vectors.append(
                 [
@@ -1267,93 +1274,6 @@ class VectorServer:
             self.default_client = self.DEFAULT_SQL_CLIENT
             self._init_sql_client = True
 
-    def apply_on_demand_transformations(
-        self,
-        rows: dict | pd.DataFrame,
-        request_parameter: dict[str, Any],
-        transformation_context: dict[str, Any] = None,
-    ) -> dict:
-        for tf in self._on_demand_transformation_functions:
-            # Setting transformation function context variables.
-            tf.hopsworks_udf.transformation_context = transformation_context
-
-            # Check if feature provided as request parameter in prefixed or unprefixed format if not get it from retrieved feature vector.
-            features = []
-            for (
-                unprefixed_feature
-            ) in tf.hopsworks_udf.unprefixed_transformation_features:
-                # Check if the on-demand feature has a prefix. If it does, compute the prefixed feature name.
-                if tf.hopsworks_udf.feature_name_prefix:
-                    prefixed_feature = (
-                        tf.hopsworks_udf.feature_name_prefix + unprefixed_feature
-                    )
-                else:
-                    prefixed_feature = unprefixed_feature
-
-                # Check if the prefixed feature name is provided as a request parameter, if so then use it. Otherwise if the unprefixed feature name is provided as a request parameter and use it. Else fetch the feature from the retrieved feature vector
-                feature_value = request_parameter.get(
-                    prefixed_feature,
-                    request_parameter.get(
-                        unprefixed_feature, rows.get(prefixed_feature)
-                    ),
-                )
-
-                if (
-                    tf.hopsworks_udf.execution_mode.get_current_execution_mode(
-                        online=True
-                    )
-                    == UDFExecutionMode.PANDAS
-                ):
-                    features.append(
-                        pd.Series(feature_value)
-                        if (not isinstance(feature_value, pd.Series))
-                        else feature_value
-                    )
-                else:
-                    # No need to cast to pandas Series for Python UDF's
-                    features.append(feature_value)
-
-            on_demand_feature = tf.hopsworks_udf.get_udf(online=True)(
-                *features
-            )  # Get only python compatible UDF irrespective of engine
-
-            rows.update(self.parse_transformed_result(on_demand_feature, tf))
-        return rows
-
-    def apply_model_dependent_transformations(
-        self,
-        rows: dict | pd.DataFrame,
-        transformation_context: dict[str, Any] = None,
-    ):
-        if _logger.isEnabledFor(logging.DEBUG):
-            _logger.debug("Applying Model-Dependent transformation functions.")
-        for tf in self.model_dependent_transformation_functions:
-            # Setting transformation function context variables.
-            tf.hopsworks_udf.transformation_context = transformation_context
-            if (
-                tf.hopsworks_udf.execution_mode.get_current_execution_mode(online=True)
-                == UDFExecutionMode.PANDAS
-            ):
-                features = [
-                    pd.Series(rows[feature])
-                    if (not isinstance(rows[feature], pd.Series))
-                    else rows[feature]
-                    for feature in tf.hopsworks_udf.transformation_features
-                ]
-            else:
-                # No need to cast to pandas Series for Python UDF's
-                # print("executing as python udfs")
-                features = [
-                    rows[feature]
-                    for feature in tf.hopsworks_udf.transformation_features
-                ]
-            transformed_result = tf.hopsworks_udf.get_udf(online=True)(
-                *features
-            )  # Get only python compatible UDF irrespective of engine
-
-            rows.update(self.parse_transformed_result(transformed_result, tf))
-        return rows
-
     def parse_transformed_result(self, transformed_results, transformation_function):
         rows = {}
         if (
@@ -1437,8 +1357,14 @@ class VectorServer:
             )
 
             # Apply on-demand transformations
-            feature_dict = self.apply_on_demand_transformations(
-                row_dict, request_parameter, transformation_context
+            feature_dict = (
+                self._transformation_function_engine.apply_transformation_functions(
+                    data=feature_dict,
+                    online=True,
+                    transformation_context=transformation_context,
+                    request_parameters=request_parameter,
+                    transformation_functions=self.on_demand_transformation_functions,
+                )
             )
             if logging_meta_data:
                 logging_meta_data.untransformed_features.append(
@@ -1450,8 +1376,12 @@ class VectorServer:
 
         if transform or logging_meta_data:
             # Apply model dependent transformations
-            encoded_feature_dict = self.apply_model_dependent_transformations(
-                feature_dict, transformation_context
+            encoded_feature_dict = self._transformation_function_engine.apply_transformation_functions(
+                data=feature_dict,
+                online=True,
+                transformation_context=transformation_context,
+                request_parameters=request_parameter,
+                transformation_functions=self.model_dependent_transformation_functions,
             )
             if logging_meta_data:
                 logging_meta_data.transformed_features.append(
