@@ -149,9 +149,6 @@ class VectorServer:
         self._serving_keys = serving_keys or []
         self._required_serving_keys = []
 
-        self._transformation_function_engine = (
-            tf_engine_mod.TransformationFunctionEngine(feature_store_id)
-        )
         self._model_dependent_transformation_functions: list[
             transformation_function.TransformationFunction
         ] = []
@@ -926,7 +923,7 @@ class VectorServer:
 
         transformed_feature_vectors = []
         for feature_vector in feature_vectors:
-            transformed_feature_vector = self._transformation_function_engine.apply_transformation_functions(
+            transformed_feature_vector = tf_engine_mod.TransformationFunctionEngine.apply_transformation_functions(
                 data=feature_vector,
                 online=True,
                 transformation_context=transformation_context,
@@ -1007,14 +1004,12 @@ class VectorServer:
         for feature_vector, request_parameter in zip(
             feature_vectors, request_parameters
         ):
-            on_demand_feature_vector = (
-                self._transformation_function_engine.apply_transformation_functions(
-                    data=feature_vector,
-                    online=True,
-                    transformation_context=transformation_context,
-                    request_parameters=request_parameter,
-                    transformation_functions=self.on_demand_transformation_functions,
-                )
+            on_demand_feature_vector = tf_engine_mod.TransformationFunctionEngine.apply_transformation_functions(
+                data=feature_vector,
+                online=True,
+                transformation_context=transformation_context,
+                request_parameters=request_parameter,
+                transformation_functions=self.on_demand_transformation_functions,
             )
             on_demand_feature_vectors.append(
                 [
@@ -1357,14 +1352,12 @@ class VectorServer:
             )
 
             # Apply on-demand transformations
-            feature_dict = (
-                self._transformation_function_engine.apply_transformation_functions(
-                    data=feature_dict,
-                    online=True,
-                    transformation_context=transformation_context,
-                    request_parameters=request_parameter,
-                    transformation_functions=self.on_demand_transformation_functions,
-                )
+            feature_dict = tf_engine_mod.TransformationFunctionEngine.apply_transformation_functions(
+                data=feature_dict,
+                online=True,
+                transformation_context=transformation_context,
+                request_parameters=request_parameter,
+                transformation_functions=self.on_demand_transformation_functions,
             )
             if logging_meta_data:
                 logging_meta_data.untransformed_features.append(
@@ -1376,7 +1369,7 @@ class VectorServer:
 
         if transform or logging_meta_data:
             # Apply model dependent transformations
-            encoded_feature_dict = self._transformation_function_engine.apply_transformation_functions(
+            encoded_feature_dict = tf_engine_mod.TransformationFunctionEngine.apply_transformation_functions(
                 data=feature_dict,
                 online=True,
                 transformation_context=transformation_context,
@@ -1798,12 +1791,6 @@ class VectorServer:
     def return_feature_value_handlers(self) -> dict[str, Callable]:
         """A dictionary of functions to the feature values returned from RonDB Server."""
         return self._return_feature_value_handlers
-
-    @property
-    def transformation_function_engine(
-        self,
-    ) -> tf_engine_mod.TransformationFunctionEngine:
-        return self._transformation_function_engine
 
     @property
     def feature_to_handle_if_rest(self) -> set[str]:

@@ -39,9 +39,6 @@ if TYPE_CHECKING:
 class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
     def __init__(self, feature_store_id: int):
         super().__init__(feature_store_id)
-        self._transformation_function_engine: transformation_function_engine.TransformationFunctionEngine = transformation_function_engine.TransformationFunctionEngine(
-            feature_store_id
-        )
 
         # cache online feature store connector
         self._online_conn = None
@@ -105,13 +102,11 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         # Currently on-demand transformation functions not supported in external feature groups.
         if feature_group.transformation_functions:
             if not isinstance(feature_group, fg.ExternalFeatureGroup):
-                feature_dataframe = (
-                    self._transformation_function_engine.apply_transformation_functions(
-                        transformation_functions=feature_group.transformation_functions,
-                        data=feature_dataframe,
-                        online=False,
-                        transformation_context=transformation_context,
-                    )
+                feature_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
+                    transformation_functions=feature_group.transformation_functions,
+                    data=feature_dataframe,
+                    online=False,
+                    transformation_context=transformation_context,
                 )
             else:
                 warnings.warn(
@@ -183,7 +178,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
         """
         try:
-            df = self._transformation_function_engine.apply_transformation_functions(
+            df = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
                 transformation_functions=transformation_functions,
                 data=data,
                 online=online,
@@ -222,13 +217,11 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             and transform
         ):
             try:
-                feature_dataframe = (
-                    self._transformation_function_engine.apply_transformation_functions(
-                        transformation_functions=feature_group.transformation_functions,
-                        data=feature_dataframe,
-                        transformation_context=transformation_context,
-                        online=False,
-                    )
+                feature_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
+                    transformation_functions=feature_group.transformation_functions,
+                    data=feature_dataframe,
+                    transformation_context=transformation_context,
+                    online=False,
                 )
             except exceptions.TransformationFunctionException as e:
                 raise exceptions.FeatureStoreException(
@@ -481,13 +474,11 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
 
         if feature_group.transformation_functions and transform:
             try:
-                dataframe = (
-                    self._transformation_function_engine.apply_transformation_functions(
-                        transformation_functions=feature_group.transformation_functions,
-                        data=dataframe,
-                        online=False,
-                        transformation_context=transformation_context,
-                    )
+                dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
+                    transformation_functions=feature_group.transformation_functions,
+                    data=dataframe,
+                    online=False,
+                    transformation_context=transformation_context,
                 )
             except exceptions.TransformationFunctionException as e:
                 raise exceptions.FeatureStoreException(

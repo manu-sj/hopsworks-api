@@ -1159,7 +1159,7 @@ class Engine:
             #    transformation_function_engine.TransformationFunctionEngine.get_and_set_feature_statistics(
             #        training_dataset_obj, feature_view_obj, training_dataset_version
             #    )
-            return transformation_function_engine.apply_transformation_functions(
+            return transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
                 transformation_functions=feature_view_obj.transformation_functions,
                 data=df,
                 online=False,
@@ -1285,7 +1285,7 @@ class Engine:
         # and the apply them
         for split_name in result_dfs:
             result_dfs[split_name] = (
-                transformation_function_engine.apply_transformation_functions(
+                transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
                     transformation_functions=feature_view_obj.transformation_functions,
                     data=result_dfs.get(split_name),
                     online=False,

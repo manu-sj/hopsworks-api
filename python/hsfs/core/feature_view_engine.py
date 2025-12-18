@@ -904,7 +904,7 @@ class FeatureViewEngine:
             `Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]`: The feature group with the on-demand transformations applied.
         """
         try:
-            df = self._transformation_function_engine.apply_transformation_functions(
+            df = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
                 transformation_functions=transformation_functions,
                 data=data,
                 online=online,
@@ -961,12 +961,11 @@ class FeatureViewEngine:
         ).read(read_options=read_options, dataframe_type=dataframe_type)
         if (transformation_functions and transformed) or logging_data:
             try:
-                transformed_dataframe = (
-                    self._transformation_function_engine.apply_transformation_functions(
-                        transformation_functions,
-                        dataset=feature_dataframe,
-                        transformation_context=transformation_context,
-                    )
+                transformed_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
+                    transformation_functions=transformation_functions,
+                    data=feature_dataframe,
+                    online=False,
+                    transformation_context=transformation_context,
                 )
             except exceptions.TransformationFunctionException as e:
                 raise FeatureStoreException(

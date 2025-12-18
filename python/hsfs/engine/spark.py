@@ -1198,12 +1198,11 @@ class Engine:
         transformation_context: dict[str, Any] = None,
     ):
         # apply transformation functions (they are applied separately to each split)
-        feature_dataframe = (
-            transformation_function_engine.apply_transformation_function(
-                transformation_functions,
-                dataset=feature_dataframe,
-                transformation_context=transformation_context,
-            )
+        feature_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
+            transformation_functions=transformation_functions,
+            data=feature_dataframe,
+            online=False,
+            transformation_context=transformation_context,
         )
         if to_df:
             return feature_dataframe

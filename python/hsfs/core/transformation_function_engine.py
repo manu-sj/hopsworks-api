@@ -108,8 +108,8 @@ class TransformationFunctionEngine:
             transformation_fns.append(transformation_fn_instance)
         return transformation_fns
 
+    @staticmethod
     def _validate_transformation_function_arguments(
-        self,
         transformation_functions: List[transformation_function.TransformationFunction],
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         request_parameters: Dict[str, Any] = None,
@@ -130,6 +130,13 @@ class TransformationFunctionEngine:
 
             if request_parameters:
                 missing_features = missing_features - set(request_parameters.keys())
+                if tf.hopsworks_udf.feature_name_prefix:
+                    missing_features = missing_features - set(
+                        [
+                            tf.hopsworks_udf.feature_name_prefix + feature
+                            for feature in request_parameters.keys()
+                        ]
+                    )
 
             if missing_features:
                 raise exceptions.TransformationFunctionException(
@@ -139,15 +146,15 @@ class TransformationFunctionEngine:
                     transformation_type=tf.transformation_type.value,
                 )
 
+    @staticmethod
     def apply_transformation_functions(
-        self,
         transformation_functions: List[transformation_function.TransformationFunction],
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         online: bool = False,
         transformation_context: Union[Dict[str, Any], List[Dict[str, Any]]] = None,
         request_parameters: Dict[str, Any] = None,
     ) -> Union[List[Dict[str, Any]], pd.DataFrame, pl.DataFrame]:
-        self._validate_transformation_function_arguments(
+        TransformationFunctionEngine._validate_transformation_function_arguments(
             transformation_functions=transformation_functions,
             data=data,
             request_parameters=request_parameters,
@@ -155,7 +162,7 @@ class TransformationFunctionEngine:
 
         if isinstance(data, dict) or engine.get_type() != "spark":
             # If the data is a dictionary or if the engine is not spark, we execute the transformation functions using.
-            return self._apply_transformation_functions(
+            return TransformationFunctionEngine._apply_transformation_functions(
                 transformation_functions=transformation_functions,
                 data=data,
                 online=online,
@@ -164,16 +171,14 @@ class TransformationFunctionEngine:
             )
         else:
             # In the case of spark, we execute the transformation functions using the spark engine since the transformations are pushed down to Spark and are not executed in Python.
-            return engine.get_instance()._apply_transformation_functions(
+            return engine.get_instance()._apply_transformation_function(
                 transformation_functions=transformation_functions,
-                data=data,
-                online=online,
+                dataset=data,
                 transformation_context=transformation_context,
-                request_parameters=request_parameters,
             )
 
+    @staticmethod
     def _apply_transformation_functions(
-        self,
         transformation_functions: List[transformation_function.TransformationFunction],
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         online: bool = False,
@@ -198,7 +203,7 @@ class TransformationFunctionEngine:
             if udf.dropped_features:
                 dropped_features.update(udf.dropped_features)
 
-            transformed_data = self.execute_udf(
+            transformed_data = TransformationFunctionEngine.execute_udf(
                 udf=udf, data=transformed_data, online=online
             )
 
@@ -213,8 +218,8 @@ class TransformationFunctionEngine:
 
         return transformed_data
 
+    @staticmethod
     def execute_udf(
-        self,
         udf: HopsworksUdf,
         data: Union[spark_sql.DataFrame, pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         online: bool = False,
@@ -225,14 +230,16 @@ class TransformationFunctionEngine:
                 udf=udf, dataframe=data, online=online
             )
         elif isinstance(data, dict):
-            return self.apply_udf_on_dict(udf=udf, data=data, online=online)
+            return TransformationFunctionEngine.apply_udf_on_dict(
+                udf=udf, data=data, online=online
+            )
         else:
             raise exceptions.FeatureStoreException(
                 f"Dataframe type {type(data)} not supported in the engine."
             )
 
+    @staticmethod
     def apply_udf_on_dict(
-        self,
         udf: HopsworksUdf,
         data: Dict[str, Any],
         online: Optional[bool] = True,
