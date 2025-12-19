@@ -530,19 +530,25 @@ class VectorServer:
             passed_features is None
             or len(passed_features) == 0
             or len(passed_features) == len(entries)
-        ), "Passed features should be None, empty or have the same length as the entries"
+        ), (
+            "Passed features should be None, empty or have the same length as the entries"
+        )
         assert (
             vector_db_features is None
             or len(vector_db_features) == 0
             or len(vector_db_features) == len(entries)
-        ), "Vector DB features should be None, empty or have the same length as the entries"
+        ), (
+            "Vector DB features should be None, empty or have the same length as the entries"
+        )
         assert (
             request_parameters is None
             or len(request_parameters) == 0
             or isinstance(request_parameters, dict)
             or not entries
             or len(request_parameters) == len(entries)
-        ), "Request Parameters should be a Dictionary, None, empty or have the same length as the entries if they are not None or empty."
+        ), (
+            "Request Parameters should be a Dictionary, None, empty or have the same length as the entries if they are not None or empty."
+        )
 
         # Create logging meta data object if required and populate it during the function.
         logging_meta_data = (
@@ -1373,7 +1379,6 @@ class VectorServer:
                 data=feature_dict,
                 online=True,
                 transformation_context=transformation_context,
-                request_parameters=request_parameter,
                 transformation_functions=self.model_dependent_transformation_functions,
             )
             if logging_meta_data:
@@ -1423,7 +1428,8 @@ class VectorServer:
                 )
             )
             for f in self._features
-            if f.is_complex() and f.feature_group.id not in self._skip_feature_decoding_fg_ids
+            if f.is_complex()
+            and f.feature_group.id not in self._skip_feature_decoding_fg_ids
         }
 
         if len(complex_feature_schemas) == 0:
