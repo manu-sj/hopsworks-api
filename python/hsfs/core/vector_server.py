@@ -934,6 +934,7 @@ class VectorServer:
                 online=True,
                 transformation_context=transformation_context,
                 transformation_functions=self.model_dependent_transformation_functions,
+                expected_features=set(self.transformed_feature_vector_col_name),
             )
             transformed_feature_vectors.append(
                 [
@@ -1016,6 +1017,7 @@ class VectorServer:
                 transformation_context=transformation_context,
                 request_parameters=request_parameter,
                 transformation_functions=self.on_demand_transformation_functions,
+                expected_features=set(self._on_demand_feature_vector_col_name),
             )
             on_demand_feature_vectors.append(
                 [
@@ -1364,6 +1366,7 @@ class VectorServer:
                 transformation_context=transformation_context,
                 request_parameters=request_parameter,
                 transformation_functions=self.on_demand_transformation_functions,
+                expected_features=set(self._on_demand_feature_vector_col_name),
             )
             if logging_meta_data:
                 logging_meta_data.untransformed_features.append(
@@ -1380,6 +1383,7 @@ class VectorServer:
                 online=True,
                 transformation_context=transformation_context,
                 transformation_functions=self.model_dependent_transformation_functions,
+                expected_features=set(self.transformed_feature_vector_col_name),
             )
             if logging_meta_data:
                 logging_meta_data.transformed_features.append(
