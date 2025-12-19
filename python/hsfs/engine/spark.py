@@ -1649,6 +1649,8 @@ class Engine:
             if tf.hopsworks_udf.dropped_features:
                 dropped_features.update(
                     {f for f in udf.dropped_features if f not in expected_features}
+                    if expected_features
+                    else udf.dropped_features
                 )
 
             # Add to dropped features if the feature need to overwritten to avoid ambiguous columns.

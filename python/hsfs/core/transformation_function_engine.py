@@ -203,6 +203,8 @@ class TransformationFunctionEngine:
             if udf.dropped_features:
                 dropped_features.update(
                     {f for f in udf.dropped_features if f not in expected_features}
+                    if expected_features
+                    else udf.dropped_features
                 )  # Drop features that are not expected, this is required to avoid dropping features having same name that are available from other feature groups.
 
             transformed_data = TransformationFunctionEngine.execute_udf(
