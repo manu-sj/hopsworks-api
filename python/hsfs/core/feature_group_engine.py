@@ -103,7 +103,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         if feature_group.transformation_functions:
             if not isinstance(feature_group, fg.ExternalFeatureGroup):
                 feature_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
-                    transformation_functions=feature_group.transformation_functions,
+                    execution_graph=feature_group._transformation_function_execution_graph,
                     data=feature_dataframe,
                     online=False,
                     transformation_context=transformation_context,
@@ -164,7 +164,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
 
     def apply_on_demand_transformations(
         self,
-        transformation_functions: list[TransformationFunction],
+        execution_graph: list[list[TransformationFunction]],
         data: pd.DataFrame | pl.DataFrame | list[dict[str, Any]],
         online: bool = False,
         transformation_context: dict[str, Any] | list[dict[str, Any]] = None,
@@ -184,7 +184,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         """
         try:
             df = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
-                transformation_functions=transformation_functions,
+                execution_graph=execution_graph,
                 data=data,
                 online=online,
                 transformation_context=transformation_context,
@@ -223,7 +223,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         ):
             try:
                 feature_dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
-                    transformation_functions=feature_group.transformation_functions,
+                    execution_graph=feature_group._transformation_function_execution_graph,
                     data=feature_dataframe,
                     transformation_context=transformation_context,
                     online=False,
@@ -480,7 +480,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
         if feature_group.transformation_functions and transform:
             try:
                 dataframe = transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
-                    transformation_functions=feature_group.transformation_functions,
+                    execution_graph=feature_group._transformation_function_execution_graph,
                     data=dataframe,
                     online=False,
                     transformation_context=transformation_context,

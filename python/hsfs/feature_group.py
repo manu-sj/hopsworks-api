@@ -70,6 +70,7 @@ from hsfs.core import (
     online_ingestion_api,
     spine_group_engine,
     statistics_engine,
+    transformation_function_engine,
     validation_report_engine,
     validation_result_engine,
 )
@@ -2713,12 +2714,19 @@ class FeatureGroup(FeatureGroupBase):
                             TransformationType.ON_DEMAND
                         )
                     self._transformation_functions.append(transformation_function)
-
+        self._transformation_function_execution_graph: list[
+            list[TransformationFunction]
+        ] = None
         if self._transformation_functions:
             self._transformation_functions = (
                 FeatureGroup._sort_transformation_functions(
                     self._transformation_functions
                 )
+            )
+            self._transformation_function_execution_graph: list[
+                list[TransformationFunction]
+            ] = transformation_function_engine.TransformationFunctionEngine.build_transformation_function_execution_graph(
+                self.transformation_functions
             )
 
     def _init_time_travel_and_stream(
@@ -4089,7 +4097,7 @@ class FeatureGroup(FeatureGroupBase):
         """
         if self.transformation_functions:
             df = self._feature_group_engine.apply_on_demand_transformations(
-                transformation_functions=self.transformation_functions,
+                execution_graph=self._transformation_function_execution_graph,
                 data=data,
                 online=online,
                 transformation_context=transformation_context,
@@ -4100,6 +4108,11 @@ class FeatureGroup(FeatureGroupBase):
                 "No on-demand transformation functions attached to the feature group, no transformations applied."
             )
         return df
+
+    def print_odt_execution_graph(self):
+        transformation_function_engine.TransformationFunctionEngine.print_transformation_function_execution_graph(
+            self._transformation_function_execution_graph
+        )
 
     @property
     def id(self) -> int | None:
