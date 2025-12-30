@@ -3072,6 +3072,7 @@ class FeatureGroup(FeatureGroupBase):
         write_options: dict[str, Any] | None = None,
         validation_options: dict[str, Any] | None = None,
         wait: bool = False,
+        n_processes: int = None,
     ) -> tuple[
         Job | None,
         great_expectations.core.ExpectationSuiteValidationResult | None,
@@ -3123,6 +3124,9 @@ class FeatureGroup(FeatureGroupBase):
             wait:
                 Wait for job and online ingestion to finish before returning.
                 Shortcut for write_options `{"wait_for_job": False, "wait_for_online_ingestion": False}`.
+
+            n_processes:
+                Number of processes to use for parallel execution of transformation functions. If not provided, the number of processes will be set to the number of available CPU cores. This parameter is only applicable when the engine is `python`, in the case of spark, the transformations are pushed down to Spark.
 
         Returns:
             When using the `python` engine, it returns the Hopsworks Job that was launched to ingest the feature group data.
@@ -3193,7 +3197,11 @@ class FeatureGroup(FeatureGroupBase):
 
         # fg_job is used only if the python engine is used
         fg_job, ge_report = self._feature_group_engine.save(
-            self, feature_dataframe, write_options, validation_options or {}
+            self,
+            feature_dataframe,
+            write_options,
+            validation_options or {},
+            n_processes=n_processes,
         )
 
         # Compute stats in client if there is no backfill job:
@@ -3236,6 +3244,7 @@ class FeatureGroup(FeatureGroupBase):
         wait: bool = False,
         transformation_context: dict[str, Any] = None,
         transform: bool = True,
+        n_processes: int = None,
     ) -> tuple[Job | None, ValidationReport | None]:
         """Persist the metadata and materialize the feature group to the feature store or insert data from a dataframe into the existing feature group.
 
@@ -3343,6 +3352,7 @@ class FeatureGroup(FeatureGroupBase):
             transform:
                 When set to `False`, the dataframe is inserted without applying any on-demand transformations
                 In this case, all required on-demand features must already exist in the provided dataframe.
+            n_processes: Number of processes to use for parallel execution of transformation functions. If not provided, the number of processes will be set to the number of available CPU cores. This parameter is only applicable when the engine is `python`, in the case of spark, the transformations are pushed down to Spark.
 
         Returns:
             Job: The job information if python engine is used.
@@ -3392,6 +3402,7 @@ class FeatureGroup(FeatureGroupBase):
             validation_options={"save_report": True, **validation_options},
             transformation_context=transformation_context,
             transform=transform,
+            n_processes=n_processes,
         )
 
         # Compute stats in client if there is no backfill job:
@@ -4092,6 +4103,7 @@ class FeatureGroup(FeatureGroupBase):
         online: bool | None = None,
         transformation_context: dict[str, Any] | list[dict[str, Any]] = None,
         request_parameters: dict[str, Any] | list[dict[str, Any]] = None,
+        n_processes: int = None,
     ) -> list[dict[str, Any]] | pd.DataFrame:
         """Apply on-demand transformations attached to the feature group on the passed dataframe or dictionary.
 
@@ -4100,6 +4112,7 @@ class FeatureGroup(FeatureGroupBase):
             online: Apply the transformations for online or offline usecase. This parameter is applicable when a transformation function is defined using the `default` execution mode.
             transformation_context: Transformation context to be used when applying the transformations.
             request_parameters: Request parameters to be used when applying the transformations.
+            n_processes: Number of processes to use for parallel execution of transformation functions. If not provided, the number of processes will be set to the number of available CPU cores. This parameter is only applicable when the engine is `python`, in the case of spark, the transformations are pushed down to Spark.
 
         Returns:
             The updated dataframe or dictionary with the transformations applied.
@@ -4111,6 +4124,7 @@ class FeatureGroup(FeatureGroupBase):
                 online=online,
                 transformation_context=transformation_context,
                 request_parameters=request_parameters,
+                n_processes=n_processes,
             )
         else:
             _logger.info(
