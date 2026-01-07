@@ -34,6 +34,8 @@ from hopsworks_common.constants import FEATURES
 from hopsworks_common.version import __version__ as current_version
 from hsfs import engine, util
 from hsfs.decorators import typechecked
+from hsfs.feature import Feature
+from hsfs.feature_group import FeatureGroup
 from hsfs.transformation_statistics import TransformationStatistics
 from packaging.version import Version
 
@@ -50,6 +52,7 @@ class UDFExecutionMode(Enum):
     DEFAULT = "default"
     PYTHON = "python"
     PANDAS = "pandas"
+    AGG = "agg"
 
     def get_current_execution_mode(self, online):
         if self == UDFExecutionMode.DEFAULT and online:
@@ -64,7 +67,7 @@ class UDFExecutionMode(Enum):
             return UDFExecutionMode[execution_mode.upper()]
         except KeyError as e:
             raise FeatureStoreException(
-                f"Ivalid execution mode `{execution_mode}` for UDF. Please use `default`, `python` or `pandas` instead."
+                f"Ivalid execution mode `{execution_mode}` for UDF. Please use `default`, `python`, `agg` or `pandas` instead."
             ) from e
 
 
@@ -79,6 +82,7 @@ def udf(
     return_type: list[type] | type,
     drop: str | list[str] | None = None,
     mode: Literal["default", "python", "pandas"] = "default",
+    group_by: list[str] | None = None,
 ) -> HopsworksUdf:
     """Create an User Defined Function that can be and used within the Hopsworks Feature Store to create transformation functions.
 
@@ -101,6 +105,9 @@ def udf(
         return_type: The output types of the defined UDF.
         drop: The features to be dropped after application of transformation functions.
         mode: The exection mode of the UDF.
+        group_by: The default group by columns for the the UDF, if group by is specified, the UDF is executed as an aggregation function.
+                By default, if group by is not specified for on-demand aggregation UDF's, the feature group's primary keys are used as group by column.
+                However, for Model Dependent aggregation UDF's, the group by columns is mandatory else an error is raised.
 
     Returns:
         The metadata object for hopsworks UDF's.
@@ -132,13 +139,34 @@ class TransformationFeature:
     """
 
     feature_name: str
-    statistic_argument_name: str | None
+    statistic_argument_name: str | None = None
+    feature_group_name: str | None = None
+    feature_group_version: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "feature_name": self.feature_name,
             "statistic_argument_name": self.statistic_argument_name,
+            "feature_group_name": self.feature_group_name,
+            "feature_group_version": self.feature_group_version,
         }
+
+    def json(self) -> str:
+        return json.dumps(self, cls=util.Encoder)
+
+    @classmethod
+    def from_response_json(
+        cls: type[TransformationFeature], json_dict: dict[str, Any]
+    ) -> TransformationFeature:
+        json_decamelized = humps.decamelize(json_dict)
+        return cls(
+            feature_name=json_decamelized.get("feature_name", None),
+            statistic_argument_name=json_decamelized.get(
+                "statistic_argument_name", None
+            ),
+            feature_group_name=json_decamelized.get("feature_group_name", None),
+            feature_group_version=json_decamelized.get("feature_group_version", None),
+        )
 
 
 @typechecked
@@ -469,10 +497,18 @@ class HopsworksUdf:
                     f"No argument corresponding to statistics parameter '{missing_statistic_features}' present in function definition."
                 )
             return [
-                TransformationFeature(arg, arg if arg in statistics._features else None)
+                TransformationFeature(
+                    feature_name=arg,
+                    statistic_argument_name=arg
+                    if arg in statistics._features
+                    else None,
+                )
                 for arg in arg_list
             ]
-        return [TransformationFeature(arg, None) for arg in arg_list]
+        return [
+            TransformationFeature(feature_name=arg, statistic_argument_name=None)
+            for arg in arg_list
+        ]
 
     @staticmethod
     def _format_source_code(source_code: str) -> tuple[str, str]:
@@ -724,16 +760,48 @@ def renaming_wrapper(*args):
         # Create a copy of the UDF to associate it with new feature names.
         udf = copy.deepcopy(self)
 
-        udf._transformation_features = [
-            TransformationFeature(
-                new_feature_name, transformation_feature.statistic_argument_name
-            )
-            for transformation_feature, new_feature_name in zip(
-                self._transformation_features, features
-            )
-        ]
+        udf._transformation_features = self.parse_transformation_features(
+            self._transformation_features, features
+        )
         udf.dropped_features = updated_dropped_features
         return udf
+
+    def parse_transformation_features(
+        self,
+        current_transformation_features: list[str | Feature | FeatureGroup],
+        new_transformation_features: list[str | Feature | FeatureGroup],
+    ) -> list[TransformationFeature]:
+        updated_transformation_features = []
+        for existing_tf, new_tf in zip(
+            current_transformation_features, new_transformation_features
+        ):
+            if isinstance(existing_tf, str):
+                if isinstance(new_tf, str):
+                    updated_transformation_features.append(
+                        TransformationFeature(
+                            feature_name=new_tf,
+                            statistic_argument_name=existing_tf.statistic_argument_name,
+                        )
+                    )
+                elif isinstance(new_tf, Feature):
+                    updated_transformation_features.append(
+                        TransformationFeature(
+                            feature_name=new_tf.name,
+                            statistic_argument_name=existing_tf.statistic_argument_name,
+                            feature_group_name=new_tf.feature_group.name,
+                            feature_group_version=new_tf.feature_group.version,
+                        )
+                    )
+                elif isinstance(new_tf, FeatureGroup):
+                    updated_transformation_features.append(
+                        TransformationFeature(
+                            feature_name="*",
+                            statistic_argument_name=existing_tf.statistic_argument_name,
+                            feature_group_name=new_tf.name,
+                            feature_group_version=new_tf.version,
+                        )
+                    )
+        return updated_transformation_features
 
     def alias(self, *args: str):
         """Set the names of the transformed features output by the UDF."""
@@ -911,7 +979,7 @@ def renaming_wrapper(*args):
         return {
             "sourceCode": self._function_source,
             "outputTypes": self.return_types,
-            "transformationFeatures": self.transformation_features,
+            "transformationFeatures": self.transformation_features.to_dict(),
             "transformationFunctionArgumentNames": self._transformation_function_argument_names,
             "droppedArgumentNames": self._dropped_argument_names,
             "statisticsArgumentNames": self._statistics_argument_names
@@ -1009,8 +1077,8 @@ def renaming_wrapper(*args):
         if statistics_features:
             transformation_features = [
                 TransformationFeature(
-                    transformation_features[arg_index],
-                    arg_list[arg_index]
+                    feature_name=transformation_features[arg_index],
+                    statistic_argument_name=arg_list[arg_index]
                     if arg_list[arg_index] in statistics_features
                     else None,
                 )
@@ -1018,7 +1086,10 @@ def renaming_wrapper(*args):
             ]
         else:
             transformation_features = [
-                TransformationFeature(transformation_features[arg_index], None)
+                TransformationFeature(
+                    feature_name=transformation_features[arg_index],
+                    statistic_argument_name=None,
+                )
                 for arg_index in range(len(arg_list))
             ]
 

@@ -28,7 +28,7 @@ from hopsworks_common.version import __version__ as current_version
 from hsfs import util
 from hsfs.core import transformation_function_engine
 from hsfs.decorators import typechecked
-from hsfs.hopsworks_udf import HopsworksUdf
+from hsfs.hopsworks_udf import HopsworksUdf, UDFExecutionMode
 from packaging.version import Version
 
 
@@ -69,6 +69,7 @@ class TransformationFunction:
         version: int | None = None,
         id: int | None = None,
         transformation_type: TransformationType | None = None,
+        group_by: list[str] | None = None,
         type=None,
         items=None,
         count=None,
@@ -99,6 +100,24 @@ class TransformationFunction:
         self.transformation_type = (
             transformation_type if transformation_type else TransformationType.UNDEFINED
         )
+
+        self._group_by: list[str] = group_by
+
+        if (
+            self._group_by
+            and self.__hopsworks_udf.execution_mode != UDFExecutionMode.AGGREGATION
+        ):
+            _logger.warning(
+                "Group by is specified for a transformation function that is not an aggregation function, implicitly setting the execution mode to aggregation. You can manually set the execution mode to aggregation using the `@udf(mode='agg')` decorator."
+            )
+            self.__hopsworks_udf.execution_mode = UDFExecutionMode.AGGREGATION
+        elif (
+            not self._group_by
+            and self.__hopsworks_udf.execution_mode == UDFExecutionMode.AGGREGATION
+        ):
+            raise FeatureStoreException(
+                f"Group by columns are mandatory for {self.__hopsworks_udf.execution_mode} UDF's. Please specify the group by columns using the `@udf(group_by=['<column_name1>', '<column_name2>', ...])` decorator."
+            )
 
         if self.__hopsworks_udf._generate_output_col_name:
             # Reset output column names so that they would be regenerated.
