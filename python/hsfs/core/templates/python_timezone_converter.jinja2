@@ -1,0 +1,13 @@
+def _convert_timezone(date_time_obj):
+    from datetime import datetime, timezone
+    import tzlocal
+    current_timezone = tzlocal.get_localzone()
+    if date_time_obj and isinstance(date_time_obj, datetime):
+        if date_time_obj.tzinfo is None:
+            # if timestamp is timezone unaware, make sure it's localized to the system's timezone.
+            # otherwise, spark will implicitly convert it to the system's timezone.
+            return date_time_obj.replace(tzinfo=current_timezone)
+        else:
+            return date_time_obj.astimezone(timezone.utc).replace(tzinfo=current_timezone)
+    else:
+        return None

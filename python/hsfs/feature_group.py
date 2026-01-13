@@ -4100,7 +4100,7 @@ class FeatureGroup(FeatureGroupBase):
     def execute_odts(
         self,
         data: pd.DataFrame | pl.DataFrame | dict[str, Any],
-        online: bool | None = None,
+        online: bool | None = False,
         transformation_context: dict[str, Any] | list[dict[str, Any]] = None,
         request_parameters: dict[str, Any] | list[dict[str, Any]] = None,
         n_processes: int = None,

@@ -1,0 +1,34 @@
+{{ module_imports }}
+import pandas as pd
+
+{{ timezone_converter_pandas }}
+{{ timezone_converter_python }}
+
+def aggregation_wrapper(*args):
+    {{ formatted_function_source | indent(4) }}
+
+    _result = {{ function_name }}(*args)
+
+# An aggregation UDF can return a pandas dataframe or series (batch aggregation) or return a single value or a tuple of single values, real time case.
+{% if has_multiple_outputs %}
+    if isinstance(_result, tuple):
+        if all(isinstance(item, (pd.DataFrame, pd.Series)) for item in _result):
+            _result = pd.concat(_result, axis=1)
+    if isinstance(_result, pd.DataFrame):
+        _result.columns = _output_col_names
+        for _col in _datetime_output_columns:
+            if pd.api.types.is_datetime64_any_dtype(_result[_col]):
+                _result[_col] = _convert_timezone(_result[_col])
+        return _result
+    else:
+{% if rename_outputs %}
+        return dict(zip(_output_col_names, _result))
+{% else %}
+        return _result
+{% endif %}
+{% else %}
+    if isinstance(_result, (pd.DataFrame, pd.Series)):
+        _result = _result.squeeze(axis=1) if isinstance(_result, pd.DataFrame) else _result
+        _result = _result.rename(_output_col_names[0])
+    return _result
+{% endif %}

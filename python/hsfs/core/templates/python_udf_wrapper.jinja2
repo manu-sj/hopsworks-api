@@ -1,0 +1,25 @@
+{{ module_imports }}
+{% if has_datetime_outputs %}
+{{ timezone_converter }}
+{% endif %}
+
+def wrapper(*args):
+    {{ formatted_function_source | indent(4) }}
+    _transformed_features = {{ function_name }}(*args)
+{% if has_multiple_outputs %}
+{% if has_datetime_outputs %}
+    _transformed_features = list(_transformed_features)
+    for _idx in _datetime_output_indices:
+        _transformed_features[_idx] = _convert_timezone(_transformed_features[_idx])
+{% endif %}
+{% if rename_outputs %}
+    return dict(zip(_output_col_names, _transformed_features))
+{% else %}
+    return _transformed_features
+{% endif %}
+{% else %}
+{% if has_datetime_outputs %}
+    _transformed_features = _convert_timezone(_transformed_features)
+{% endif %}
+    return _transformed_features
+{% endif %}

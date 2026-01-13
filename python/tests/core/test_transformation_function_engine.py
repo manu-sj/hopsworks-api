@@ -2649,3 +2649,121 @@ class TestTransformationFunctionEngine:
             str(e_info.value)
             == "Cyclic dependency detected in transformation functions."
         )
+
+    # ==================== Aggregation UDF Execution Graph Tests ====================
+
+    def test_build_execution_graph_agg_udfs_first_level(self, mocker):
+        """Test that AGG UDFs are placed in the first level of the execution graph."""
+        feature_store_id = 99
+        mocker.patch("hsfs.core.transformation_function_api.TransformationFunctionApi")
+
+        @udf(float, mode="agg", group_by=["user_id"])
+        def avg_value(col1):
+            return col1.mean()
+
+        @udf(int)
+        def add_one(col1):
+            return col1 + 1
+
+        @udf(float, mode="agg", group_by=["category"])
+        def sum_value(col1):
+            return col1.sum()
+
+        tf_agg1 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=avg_value,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+        tf_regular = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+        tf_agg2 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=sum_value,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        # AGG UDFs should be in first level, regular UDFs in subsequent levels
+        levels = transformation_function_engine.TransformationFunctionEngine.build_transformation_function_execution_graph(
+            [tf_agg1, tf_regular, tf_agg2]
+        )
+
+        # First level should contain both AGG UDFs
+        assert len(levels) == 2
+        assert len(levels[0]) == 2
+        assert tf_agg1 in levels[0]
+        assert tf_agg2 in levels[0]
+
+        # Second level should contain the regular UDF
+        assert len(levels[1]) == 1
+        assert tf_regular in levels[1]
+
+    def test_build_execution_graph_only_agg_udfs(self, mocker):
+        """Test execution graph with only AGG UDFs."""
+        feature_store_id = 99
+        mocker.patch("hsfs.core.transformation_function_api.TransformationFunctionApi")
+
+        @udf(float, mode="agg", group_by=["user_id"])
+        def avg_value(col1):
+            return col1.mean()
+
+        @udf(float, mode="agg", group_by=["category"])
+        def sum_value(col1):
+            return col1.sum()
+
+        tf_agg1 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=avg_value,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+        tf_agg2 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=sum_value,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        levels = transformation_function_engine.TransformationFunctionEngine.build_transformation_function_execution_graph(
+            [tf_agg1, tf_agg2]
+        )
+
+        # Should have only one level with both AGG UDFs
+        assert len(levels) == 1
+        assert len(levels[0]) == 2
+        assert tf_agg1 in levels[0]
+        assert tf_agg2 in levels[0]
+
+    def test_build_execution_graph_no_agg_udfs(self, mocker):
+        """Test execution graph with no AGG UDFs (only regular)."""
+        feature_store_id = 99
+        mocker.patch("hsfs.core.transformation_function_api.TransformationFunctionApi")
+
+        @udf(int)
+        def add_one(col1):
+            return col1 + 1
+
+        @udf(int)
+        def add_two(col1):
+            return col1 + 2
+
+        tf1 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=add_one,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+        tf2 = transformation_function.TransformationFunction(
+            feature_store_id,
+            hopsworks_udf=add_two,
+            transformation_type=TransformationType.MODEL_DEPENDENT,
+        )
+
+        levels = transformation_function_engine.TransformationFunctionEngine.build_transformation_function_execution_graph(
+            [tf1, tf2]
+        )
+
+        # Should have one level with both regular UDFs (no dependencies between them)
+        assert len(levels) == 1
+        assert len(levels[0]) == 2
+        assert tf1 in levels[0]
+        assert tf2 in levels[0]

@@ -38,7 +38,7 @@ class TestHopsworksUdf:
 
         assert (
             str(exception.value)
-            == "Ivalid execution mode `invalid` for UDF. Please use `default`, `python` or `pandas` instead."
+            == "Ivalid execution mode `invalid` for UDF. Please use `default`, `python`, `agg` or `pandas` instead."
         )
 
     def test_udf_creation_default_execution_mode(self):
@@ -1577,3 +1577,149 @@ def test_function():
         assert add_statistics_data.executor(
             statistics={"feature": {"mean": 100}}, context={"test_value": 10}
         ).execute(data).values.tolist() == [111, 112, 113]
+
+    # ==================== Aggregation UDF Tests ====================
+
+    def test_udf_agg_mode_creation(self, mocker):
+        """Test creating a UDF with agg mode."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg")
+        def avg_value(col1):
+            return col1.mean()
+
+        assert avg_value._execution_mode == UDFExecutionMode.AGG
+
+    def test_udf_agg_mode_with_group_by(self, mocker):
+        """Test creating a UDF with agg mode and group_by parameter."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg", group_by=["user_id", "category"])
+        def avg_amount(amount):
+            return amount.mean()
+
+        assert avg_amount._execution_mode == UDFExecutionMode.AGG
+        assert avg_amount._group_by == ["user_id", "category"]
+
+    def test_udf_agg_mode_group_by_property(self, mocker):
+        """Test the group_by property of aggregation UDFs."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg", group_by=["customer_id"])
+        def sum_purchases(amount):
+            return amount.sum()
+
+        assert sum_purchases.group_by_features == ["customer_id"]
+
+    def test_udf_agg_mode_no_group_by(self, mocker):
+        """Test aggregation UDF without group_by returns None."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg")
+        def global_avg(amount):
+            return amount.mean()
+
+        assert global_avg.group_by_features is None
+
+    def test_udf_get_udf_agg_mode(self, mocker):
+        """Test get_udf returns aggregation wrapper for agg mode."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg", group_by=["user_id"])
+        def avg_amount(amount):
+            return amount.mean()
+
+        wrapper = avg_amount.get_udf(online=True)
+        assert callable(wrapper)
+
+    def test_aggregation_udf_wrapper_execution(self, mocker):
+        """Test aggregation UDF wrapper executes correctly."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg")
+        def calc_mean(values):
+            return values.mean()
+
+        # Configure the UDF with feature names and output column names
+        configured_udf = calc_mean("values")
+        configured_udf.output_column_names = ["calc_mean"]
+
+        wrapper = configured_udf.get_udf(online=False)
+
+        # Create test DataFrame
+        df = pd.DataFrame({"values": [10.0, 20.0, 30.0]})
+
+        result = wrapper(df)
+
+        # Mean of [10, 20, 30] = 20
+        assert "calc_mean" in result.columns
+        assert result["calc_mean"].iloc[0] == 20.0
+
+    def test_aggregation_udf_wrapper_with_sum(self, mocker):
+        """Test aggregation UDF wrapper with sum function."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg")
+        def calc_sum(values):
+            return values.sum()
+
+        # Configure the UDF with feature names and output column names
+        configured_udf = calc_sum("values")
+        configured_udf.output_column_names = ["calc_sum"]
+
+        wrapper = configured_udf.get_udf(online=False)
+
+        df = pd.DataFrame({"values": [10.0, 20.0, 30.0]})
+
+        result = wrapper(df)
+
+        # Sum of [10, 20, 30] = 60
+        assert "calc_sum" in result.columns
+        assert result["calc_sum"].iloc[0] == 60.0
+
+    def test_aggregation_udf_wrapper_multiple_outputs(self, mocker):
+        """Test aggregation UDF that returns multiple values."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf([float, float], mode="agg")
+        def calc_stats(values):
+            return pd.DataFrame({"col_0": [values.mean()], "col_1": [values.std()]})
+
+        # Configure the UDF with feature names and output column names
+        configured_udf = calc_stats("values")
+        configured_udf.output_column_names = ["calc_stats_0", "calc_stats_1"]
+
+        wrapper = configured_udf.get_udf(online=False)
+
+        df = pd.DataFrame({"values": [10.0, 20.0, 30.0]})
+
+        result = wrapper(df)
+
+        assert "calc_stats_0" in result.columns
+        assert "calc_stats_1" in result.columns
+
+    def test_udf_to_dict_with_group_by(self, mocker):
+        """Test that to_dict includes group_by parameter."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg", group_by=["user_id"])
+        def avg_amount(amount):
+            return amount.mean()
+
+        result = avg_amount.to_dict()
+
+        assert "groupBy" in result
+        assert result["groupBy"] == ["user_id"]
+
+    def test_udf_to_dict_without_group_by(self, mocker):
+        """Test that to_dict handles None group_by."""
+        mocker.patch("hsfs.engine.get_type", return_value="python")
+
+        @udf(float, mode="agg")
+        def avg_amount(amount):
+            return amount.mean()
+
+        result = avg_amount.to_dict()
+
+        assert "groupBy" in result
+        assert result["groupBy"] is None

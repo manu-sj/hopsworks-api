@@ -613,6 +613,7 @@ class FeatureView:
         transformation_context: dict[str, Any] = None,
         logging_data: bool = False,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ) -> (
         list[Any]
         | pd.DataFrame
@@ -734,6 +735,9 @@ class FeatureView:
             n_processes:
                 Number of processes to use for parallel execution of transformation functions.
                 If not provided, the number of processes will be set to the number of available CPU cores.
+            aggregation_time_window:
+                Time window for aggregation UDFs (e.g., "7d", "1h", "30m").
+                Only applies to transformation functions with `mode="agg"`.
 
         Returns:
             Returned `list`, `pd.DataFrame`, `polars.DataFrame` or `np.ndarray` (the exact type dependends on `return_type`) contains feature values related to provided primary keys, ordered according to positions of this features in the feature view query.
@@ -761,6 +765,7 @@ class FeatureView:
             transformation_context=transformation_context,
             logging_data=logging_data,
             n_processes=n_processes,
+            aggregation_time_window=aggregation_time_window,
         )
 
     def get_feature_vectors(
@@ -778,6 +783,7 @@ class FeatureView:
         transformation_context: dict[str, Any] = None,
         logging_data: bool = False,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ) -> (
         list[list[Any]]
         | pd.DataFrame
@@ -896,6 +902,9 @@ class FeatureView:
             n_processes:
                 Number of processes to use for parallel execution of transformation functions.
                 If not provided, the number of processes will be set to the number of available CPU cores.
+            aggregation_time_window:
+                Time window for aggregation UDFs (e.g., "7d", "1h", "30m").
+                Only applies to transformation functions with `mode="agg"`.
 
         Returns:
             Returned `List[list]`, `pd.DataFrame`, `polars.DataFrame` or `np.ndarray` (depending on the `return_type`) contains feature values related to provided primary keys, ordered according to positions of this features in the feature view query.
@@ -925,6 +934,7 @@ class FeatureView:
             transformation_context=transformation_context,
             logging_data=logging_data,
             n_processes=n_processes,
+            aggregation_time_window=aggregation_time_window,
         )
 
     def get_inference_helper(

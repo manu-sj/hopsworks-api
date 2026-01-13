@@ -53,6 +53,12 @@ from hsfs.core.feature_logging import LoggingMetaData
 from hsfs.hopsworks_udf import UDFExecutionMode
 
 
+# Helper function to check if a transformation is an aggregation UDF
+def _is_aggregation_udf(tf: transformation_function.TransformationFunction) -> bool:
+    """Check if a transformation function is an aggregation UDF."""
+    return tf.hopsworks_udf.execution_mode == UDFExecutionMode.AGG
+
+
 if HAS_NUMPY:
     import numpy as np
 
@@ -153,6 +159,9 @@ class VectorServer:
             transformation_function.TransformationFunction
         ] = []
         self._on_demand_transformation_functions: list[
+            transformation_function.TransformationFunction
+        ] = []
+        self._aggregation_transformation_functions: list[
             transformation_function.TransformationFunction
         ] = []
         self._on_demand_transformation_functions_execution_graph: list[
@@ -273,23 +282,44 @@ class VectorServer:
         )
 
         # Filter out model-dependent transformation functions that use label features. Only the first label feature is checked since a transformation function using label feature can only contain label features.
-        self._model_dependent_transformation_functions = [
+        non_label_model_dependent = [
             tf
             for tf in model_dependent_transformations
             if tf.hopsworks_udf.transformation_features[0] not in entity.labels
         ]
 
+        # Separate aggregation UDFs from regular model-dependent transformations
+        self._model_dependent_transformation_functions = [
+            tf for tf in non_label_model_dependent if not _is_aggregation_udf(tf)
+        ]
+        model_dependent_aggregations = [
+            tf for tf in non_label_model_dependent if _is_aggregation_udf(tf)
+        ]
+
         self._on_demand_transformation_functions = []
+        on_demand_aggregations = []
 
         for feature in entity.features:
             if (
                 feature.on_demand_transformation_function
                 and feature.on_demand_transformation_function
                 not in self._on_demand_transformation_functions
+                and feature.on_demand_transformation_function
+                not in on_demand_aggregations
             ):
-                self._on_demand_transformation_functions.append(
-                    feature.on_demand_transformation_function
-                )
+                if _is_aggregation_udf(feature.on_demand_transformation_function):
+                    on_demand_aggregations.append(
+                        feature.on_demand_transformation_function
+                    )
+                else:
+                    self._on_demand_transformation_functions.append(
+                        feature.on_demand_transformation_function
+                    )
+
+        # Combine all aggregation transformations (both model-dependent and on-demand)
+        self._aggregation_transformation_functions = (
+            model_dependent_aggregations + on_demand_aggregations
+        )
 
         self._on_demand_feature_names = [
             feature.name
@@ -432,6 +462,7 @@ class VectorServer:
         transformation_context: dict[str, Any] = None,
         logging_data: bool = False,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ) -> pd.DataFrame | pl.DataFrame | np.ndarray | list[Any] | dict[str, Any]:
         """Assembles serving vector from online feature store."""
         online_client_choice = self.which_client_and_ensure_initialised(
@@ -496,6 +527,7 @@ class VectorServer:
             transformation_context=transformation_context,
             logging_meta_data=logging_meta_data,
             n_processes=n_processes,
+            aggregation_time_window=aggregation_time_window,
         )
         if logging_meta_data is not None:
             logging_meta_data.serving_keys.append(entry)
@@ -539,6 +571,7 @@ class VectorServer:
         transformation_context: dict[str, Any] = None,
         logging_data: bool = False,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ) -> pd.DataFrame | pl.DataFrame | np.ndarray | list[Any] | list[dict[str, Any]]:
         """Assembles serving vector from online feature store."""
         if passed_features is None:
@@ -701,6 +734,7 @@ class VectorServer:
                 transformation_context=transformation_context,
                 logging_meta_data=logging_meta_data,
                 n_processes=n_processes,
+                aggregation_time_window=aggregation_time_window,
             )
 
             if logging_meta_data is not None:
@@ -744,6 +778,7 @@ class VectorServer:
         transformation_context: dict[str, Any] = None,
         logging_meta_data: LoggingMetaData = None,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ) -> list[Any] | None:
         """Assembles serving vector from online feature store."""
         # Errors in batch requests are returned as None values
@@ -793,6 +828,7 @@ class VectorServer:
         if (
             len(self.model_dependent_transformation_functions) > 0
             or len(self.on_demand_transformation_functions) > 0
+            or len(self.aggregation_transformation_functions) > 0
         ):
             feature_dict, encoded_feature_dict = self.apply_transformation(
                 result_dict.copy(),
@@ -802,6 +838,7 @@ class VectorServer:
                 on_demand_features=on_demand_features,
                 logging_meta_data=logging_meta_data,
                 n_processes=n_processes,
+                aggregation_time_window=aggregation_time_window,
             )
         if _logger.isEnabledFor(logging.DEBUG):
             _logger.debug(
@@ -1371,6 +1408,7 @@ class VectorServer:
         on_demand_features: bool = True,
         logging_meta_data: LoggingMetaData = None,
         n_processes: int = None,
+        aggregation_time_window: str | None = None,
     ):
         """Function that applies both on-demand and model dependent transformation to the input dictonary.
 
@@ -1386,6 +1424,15 @@ class VectorServer:
             self.check_missing_request_parameters(
                 features=row_dict, request_parameters=request_parameter
             )
+
+            # Execute aggregation transformations first (they may provide inputs for other transforms)
+            if self._aggregation_transformation_functions:
+                feature_dict = self._execute_aggregation_transformations(
+                    feature_dict=feature_dict,
+                    request_parameters=request_parameter,
+                    transformation_context=transformation_context,
+                    aggregation_time_window=aggregation_time_window,
+                )
 
             # Apply on-demand transformations
             feature_dict = tf_engine_mod.TransformationFunctionEngine.apply_transformation_functions(
@@ -1424,6 +1471,50 @@ class VectorServer:
                 )
 
         return feature_dict, encoded_feature_dict
+
+    def _execute_aggregation_transformations(
+        self,
+        feature_dict: dict[str, Any],
+        request_parameters: dict[str, Any] | None = None,
+        transformation_context: dict[str, Any] | None = None,
+        aggregation_time_window: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute aggregation UDFs and merge results into the feature dictionary.
+
+        Parameters:
+            feature_dict: The current feature dictionary to merge results into.
+            request_parameters: Request parameters that may contain group_by values.
+            transformation_context: Context variables for transformation functions.
+            aggregation_time_window: Optional time window for aggregation queries.
+
+        Returns:
+            The feature dictionary with aggregation results merged in.
+        """
+        if not self._aggregation_transformation_functions:
+            return feature_dict
+
+        # Combine feature_dict and request_parameters for aggregation input
+        combined_data = {**(feature_dict or {}), **(request_parameters or {})}
+
+        for agg_tf in self._aggregation_transformation_functions:
+            # Execute the aggregation UDF using apply_udf_on_dict
+            try:
+                result = tf_engine_mod.TransformationFunctionEngine.apply_udf_on_dict(
+                    udf=agg_tf.hopsworks_udf,
+                    data=combined_data,
+                    online=True,
+                )
+                # Merge results into feature_dict
+                feature_dict.update(result)
+            except Exception as e:
+                _logger.warning(
+                    f"Failed to execute aggregation UDF {agg_tf.hopsworks_udf.function_name}: {e}"
+                )
+                # Set output columns to None on failure
+                for col in agg_tf.hopsworks_udf.output_column_names:
+                    feature_dict[col] = None
+
+        return feature_dict
 
     def apply_return_value_handlers(
         self, row_dict: dict[str, Any], client: Literal["rest", "sql"]
@@ -1826,6 +1917,12 @@ class VectorServer:
         self,
     ) -> list[transformation_function.TransformationFunction] | None:
         return self._on_demand_transformation_functions
+
+    @property
+    def aggregation_transformation_functions(
+        self,
+    ) -> list[transformation_function.TransformationFunction] | None:
+        return self._aggregation_transformation_functions
 
     @property
     def return_feature_value_handlers(self) -> dict[str, Callable]:

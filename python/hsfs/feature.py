@@ -70,6 +70,7 @@ class Feature:
         self._online_type = online_type
         self._default_value = default_value
         self._use_fully_qualified_name = use_fully_qualified_name
+        self._feature_group = feature_group
         if feature_group is not None:
             self._feature_group_id = feature_group.id
         else:
@@ -258,6 +259,18 @@ class Feature:
     def feature_group_id(self) -> int | None:
         """ID of the feature group to which this feature belongs."""
         return self._feature_group_id
+
+    @property
+    def feature_group(
+        self,
+    ) -> (
+        hsfs.feature_group.FeatureGroup
+        | hsfs.feature_group.ExternalFeatureGroup
+        | hsfs.feature_group.SpineGroup
+        | None
+    ):
+        """The feature group to which this feature belongs."""
+        return self._feature_group
 
     @property
     def on_demand(self) -> bool:

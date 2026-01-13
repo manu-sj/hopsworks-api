@@ -57,6 +57,7 @@ dependencies = [
     "protobuf>=4.25.4,<5.0.0",       # ^4.25.4
     "packaging",         # ^21.0
     "networkx<3.7.0",
+    "Jinja2>=3.0.0",
 ]
 
 [project.scripts]

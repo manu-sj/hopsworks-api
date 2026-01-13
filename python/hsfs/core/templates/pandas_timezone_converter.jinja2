@@ -1,0 +1,10 @@
+def _convert_timezone(date_time_col):
+    import tzlocal
+    current_timezone = tzlocal.get_localzone()
+    if date_time_col.dt.tz is None:
+        # if timestamp is timezone unaware, make sure it's localized to the system's timezone.
+        # otherwise, spark will implicitly convert it to the system's timezone.
+        return date_time_col.dt.tz_localize(str(current_timezone))
+    else:
+        # convert to utc, then localize to system's timezone
+        return date_time_col.dt.tz_convert('UTC').dt.tz_localize(None).dt.tz_localize(str(current_timezone))

@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import warnings
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
@@ -32,10 +33,8 @@ from hopsworks_common import client
 from hopsworks_common.client.exceptions import FeatureStoreException
 from hopsworks_common.constants import FEATURES
 from hopsworks_common.version import __version__ as current_version
-from hsfs import engine, util
+from hsfs import engine, feature, feature_group, util
 from hsfs.decorators import typechecked
-from hsfs.feature import Feature
-from hsfs.feature_group import FeatureGroup
 from hsfs.transformation_statistics import TransformationStatistics
 from packaging.version import Version
 
@@ -57,7 +56,9 @@ class UDFExecutionMode(Enum):
     def get_current_execution_mode(self, online):
         if self == UDFExecutionMode.DEFAULT and online:
             return UDFExecutionMode.PYTHON
-        if self == UDFExecutionMode.DEFAULT and not online:
+        if (
+            self == UDFExecutionMode.DEFAULT or self == UDFExecutionMode.AGG
+        ) and not online:
             return UDFExecutionMode.PANDAS
         return self
 
@@ -81,7 +82,7 @@ class UDFKeyWords(Enum):
 def udf(
     return_type: list[type] | type,
     drop: str | list[str] | None = None,
-    mode: Literal["default", "python", "pandas"] = "default",
+    mode: Literal["default", "python", "pandas", "agg"] = "default",
     group_by: list[str] | None = None,
 ) -> HopsworksUdf:
     """Create an User Defined Function that can be and used within the Hopsworks Feature Store to create transformation functions.
@@ -122,6 +123,7 @@ def udf(
             return_types=return_type,
             dropped_argument_names=drop,
             execution_mode=UDFExecutionMode.from_string(mode),
+            group_by=group_by,
         )
 
     return wrapper
@@ -140,15 +142,13 @@ class TransformationFeature:
 
     feature_name: str
     statistic_argument_name: str | None = None
-    feature_group_name: str | None = None
-    feature_group_version: int | None = None
+    feature_group_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "feature_name": self.feature_name,
             "statistic_argument_name": self.statistic_argument_name,
-            "feature_group_name": self.feature_group_name,
-            "feature_group_version": self.feature_group_version,
+            "feature_group_id": self.feature_group_id,
         }
 
     def json(self) -> str:
@@ -213,12 +213,15 @@ class HopsworksUdf:
         feature_name_prefix: str | None = None,
         output_column_names: str | None = None,
         generate_output_col_names: bool = True,
+        group_by: list[str] | None = None,
     ):
         self._return_types: list[str] = HopsworksUdf._validate_and_convert_output_types(
             return_types
         )
 
         self._execution_mode: UDFExecutionMode = execution_mode
+
+        self.group_by_features: list[str] | None = group_by
 
         self._feature_name_prefix: str | None = (
             feature_name_prefix  # Prefix to be added to feature names
@@ -284,6 +287,36 @@ class HopsworksUdf:
         # Denote if the output feature names have to be generated.
         # Set to `False` if the output column names are saved in the backend and the udf is constructed from it using `from_response_json` function or if user has specified the output feature names using the `alias`` function.
         self._generate_output_col_name: bool = generate_output_col_names
+
+        self._external_data_dependencies, self._external_features = (
+            self.update_external_features(
+                self._transformation_features, self.group_by_features
+            )
+        )
+
+    @staticmethod
+    def update_external_features(
+        transformation_features: list[TransformationFeature],
+        group_by_features: list[str],
+    ) -> tuple[dict[int, set[str]], set[str]]:
+        external_data_dependencies = defaultdict(set)
+        for transformation_feature in transformation_features:
+            if transformation_feature.feature_group_id:
+                external_data_dependencies[transformation_feature.feature_group_id].add(
+                    transformation_feature.feature_name
+                )
+
+        if group_by_features:
+            for external_data_dependency in external_data_dependencies.values():
+                external_data_dependency.update(group_by_features)
+
+        external_features = {
+            feature.feature_name
+            for feature in transformation_features
+            if feature.feature_group_id
+        }
+
+        return external_data_dependencies, external_features
 
     @staticmethod
     def _validate_and_convert_drop_features(
@@ -576,152 +609,145 @@ class HopsworksUdf:
 
         return scope
 
-    def python_udf_wrapper(self, rename_outputs) -> Callable:
+    def python_udf_wrapper(self, rename_outputs: bool) -> Callable:
         """Function that creates a dynamic wrapper function for the defined udf.
 
-        The wrapper function would be used to specify column names, in spark engines and to localize timezones.
+        The wrapper function would be used to specify column names in spark engines
+        and to localize timezones.
 
-        The renames is done so that the column names match the schema expected by spark when multiple columns are returned in a spark udf.
+        The renames is done so that the column names match the schema expected by
+        spark when multiple columns are returned in a spark udf.
         The wrapper function would be available in the main scope of the program.
 
+        Parameters:
+            rename_outputs: If True, returns outputs as dict with column names (for Spark).
+
         Returns:
-            A wrapper function that renames outputs of the User defined function into specified output column names.
+            A wrapper function that renames outputs of the User defined function
+            into specified output column names.
         """
-        # Check if any output is of date time type.
-        date_time_output_index = [
+        from hsfs.core.code_generation_engine import UDFContext, get_udf_code_generator
+
+        # Check if any output is of datetime type
+        datetime_output_indices = [
             ind for ind, ele in enumerate(self.return_types) if ele == "timestamp"
         ]
 
-        # Function that converts the timestamp to localized timezone
-        convert_timstamp_function = (
-            "def convert_timezone(date_time_obj : datetime):\n"
-            "   from datetime import datetime, timezone\n"
-            "   import tzlocal\n"
-            "   current_timezone = tzlocal.get_localzone()\n"
-            "   if date_time_obj and isinstance(date_time_obj, datetime):\n"
-            "      if date_time_obj.tzinfo is None:\n"
-            "      # if timestamp is timezone unaware, make sure it's localized to the system's timezone.\n"
-            "      # otherwise, spark will implicitly convert it to the system's timezone.\n"
-            "         return date_time_obj.replace(tzinfo=current_timezone)\n"
-            "      else:\n"
-            "         return date_time_obj.astimezone(timezone.utc).replace(tzinfo=current_timezone)\n"
-            "   else:\n"
-            "      return None\n"
+        # Create context for code generation
+        context = UDFContext(
+            function_name=self.function_name,
+            formatted_function_source=self._formatted_function_source,
+            module_imports=self._module_imports,
+            output_column_names=self.output_column_names,
+            return_types=self.return_types,
+            datetime_output_indices=datetime_output_indices,
         )
 
-        # Start wrapper function generation
-        code = (
-            self._module_imports
-            + "\n"
-            + (convert_timstamp_function + "\n" if date_time_output_index else "\n")
-            + "def wrapper(*args):\n"
-            + f"   {self._formatted_function_source}\n"
-            + f"   transformed_features = {self.function_name}(*args)\n"
-        )
-        if len(self.return_types) > 1:
-            # If date time columns are there convert make sure that they are localized.
-            if date_time_output_index:
-                code += (
-                    "   transformed_features = list(transformed_features)\n"
-                    "   for index in _date_time_output_index:\n"
-                    "      transformed_features[index] = convert_timezone(transformed_features[index])\n"
-                )
-            if rename_outputs:
-                # Use a dictionary to rename output to correct column names. This must be for the udf's to be executable in spark.
-                code += "   return dict(zip(_output_col_names, transformed_features))"
-            else:
-                code += "   return transformed_features"
-        else:
-            if date_time_output_index:
-                code += (
-                    "   transformed_features = convert_timezone(transformed_features)\n"
-                )
-            code += "   return transformed_features"
+        # Generate the wrapper code using the code generation engine
+        generator = get_udf_code_generator()
+        generated = generator.generate_python_wrapper(context, rename_outputs)
 
-        # Inject required parameter to scope
+        # Inject required parameters to scope
         scope = self._prepare_transformation_function_scope(
-            _date_time_output_index=date_time_output_index
+            _datetime_output_indices=datetime_output_indices
         )
 
-        # executing code
-        exec(code, scope)
+        # Execute the generated code
+        exec(generated.code, scope)
 
-        # returning executed function object
+        # Return the executed function object
         return eval("wrapper", scope)
 
     def pandas_udf_wrapper(self) -> Callable:
-        """Function that creates a dynamic wrapper function for the defined udf that renames the columns output by the UDF into specified column names.
+        """Function that creates a dynamic wrapper function for the defined udf.
 
-        The renames is done so that the column names match the schema expected by spark when multiple columns are returned in a pandas udf.
+        Creates a wrapper that renames the columns output by the UDF into specified
+        column names. The rename is done so that the column names match the schema
+        expected by spark when multiple columns are returned in a pandas udf.
         The wrapper function would be available in the main scope of the program.
 
         Returns:
-            A wrapper function that renames outputs of the User defined function into specified output column names.
+            A wrapper function that renames outputs of the User defined function
+            into specified output column names.
         """
-        date_time_output_columns = [
+        from hsfs.core.code_generation_engine import UDFContext, get_udf_code_generator
+
+        # Get datetime output column names
+        datetime_output_columns = [
             self.output_column_names[ind]
             for ind, ele in enumerate(self.return_types)
             if ele == "timestamp"
         ]
 
-        # Function to make transformation function time safe. Defined as a string because it has to be dynamically injected into scope to be executed by spark
-        convert_timstamp_function = """def convert_timezone(date_time_col : pd.Series):
-        import tzlocal
-        current_timezone = tzlocal.get_localzone()
-        if date_time_col.dt.tz is None:
-            # if timestamp is timezone unaware, make sure it's localized to the system's timezone.
-            # otherwise, spark will implicitly convert it to the system's timezone.
-            return date_time_col.dt.tz_localize(str(current_timezone))
-        else:
-            # convert to utc, then localize to system's timezone
-            return date_time_col.dt.tz_convert('UTC').dt.tz_localize(None).dt.tz_localize(str(current_timezone))"""
-
-        # Defining wrapper function that renames the column names to specific names
-        if len(self.return_types) > 1:
-            code = (
-                self._module_imports
-                + "\n"
-                + f"""import pandas as pd
-{convert_timstamp_function}
-def renaming_wrapper(*args):
-    {self._formatted_function_source}
-    df = {self.function_name}(*args)
-    if isinstance(df, tuple):
-        df = pd.concat(df, axis=1)
-    df.columns = _output_col_names
-    for col in _date_time_output_columns:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            df[col] = convert_timezone(df[col])
-    return df"""
-            )
-        else:
-            code = (
-                self._module_imports
-                + "\n"
-                + f"""import pandas as pd
-{convert_timstamp_function}
-def renaming_wrapper(*args):
-    {self._formatted_function_source}
-    df = {self.function_name}(*args)
-    # If the output is a dataframe, then it should be a single column dataframe, so we can squeeze it to a series.
-    df = df.squeeze(axis=1) if isinstance(df, pd.DataFrame) else df
-    df = df.rename(_output_col_names[0])
-    if _date_time_output_columns:
-        # Set correct type is column is not of datetime type
-        if pd.api.types.is_datetime64_any_dtype(df):
-            df = convert_timezone(df)
-    return df"""
-            )
-
-        # Inject required parameter to scope
-        scope = self._prepare_transformation_function_scope(
-            _date_time_output_columns=date_time_output_columns
+        # Create context for code generation
+        context = UDFContext(
+            function_name=self.function_name,
+            formatted_function_source=self._formatted_function_source,
+            module_imports=self._module_imports,
+            output_column_names=self.output_column_names,
+            return_types=self.return_types,
+            datetime_output_columns=datetime_output_columns,
         )
 
-        exec(code, scope)
+        # Generate the wrapper code using the code generation engine
+        generator = get_udf_code_generator()
+        generated = generator.generate_pandas_wrapper(context)
 
-        # returning executed function object
+        # Inject required parameters to scope
+        scope = self._prepare_transformation_function_scope(
+            _datetime_output_columns=datetime_output_columns
+        )
+
+        # Execute the generated code
+        exec(generated.code, scope)
+
+        # Return the executed function object
         return eval("renaming_wrapper", scope)
+
+    def aggregation_udf_wrapper(self) -> Callable:
+        """Function that creates a dynamic wrapper function for aggregation UDFs.
+
+        Creates a wrapper for aggregation functions that take DataFrame/Series as input
+        and return scalar values, tuples, Series, or DataFrames. The wrapper ensures
+        outputs are converted to DataFrame format with proper column names.
+
+        Returns:
+            A wrapper function that handles aggregation outputs and converts them
+            to DataFrame format with specified output column names.
+        """
+        from hsfs.core.code_generation_engine import UDFContext, get_udf_code_generator
+
+        # Get datetime output column names
+        datetime_output_columns = [
+            self.output_column_names[ind]
+            for ind, ele in enumerate(self.return_types)
+            if ele == "timestamp"
+        ]
+
+        # Create context for code generation
+        context = UDFContext(
+            function_name=self.function_name,
+            formatted_function_source=self._formatted_function_source,
+            module_imports=self._module_imports,
+            output_column_names=self.output_column_names,
+            return_types=self.return_types,
+            datetime_output_columns=datetime_output_columns,
+        )
+
+        # Generate the wrapper code using the code generation engine
+        generator = get_udf_code_generator()
+        generated = generator.generate_aggregation_wrapper(context)
+
+        # Inject required parameters to scope
+        scope = self._prepare_transformation_function_scope(
+            _datetime_output_columns=datetime_output_columns
+        )
+
+        # Execute the generated code
+        exec(generated.code, scope)
+
+        # Return the executed function object
+        return eval("aggregation_wrapper", scope)
 
     def __call__(self, *features: list[str]) -> HopsworksUdf:
         """Set features to be passed as arguments to the user defined functions.
@@ -741,7 +767,7 @@ def renaming_wrapper(*args):
             )
 
         for arg in features:
-            if not isinstance(arg, str):
+            if not isinstance(arg, (str, feature.Feature, feature_group.FeatureGroup)):
                 raise FeatureStoreException(
                     f'Feature names provided must be string "{arg}" is not string'
                 )
@@ -763,44 +789,50 @@ def renaming_wrapper(*args):
         udf._transformation_features = self.parse_transformation_features(
             self._transformation_features, features
         )
+        udf._external_data_dependencies, udf._external_features = (
+            self.update_external_features(
+                udf._transformation_features, udf.group_by_features
+            )
+        )
         udf.dropped_features = updated_dropped_features
         return udf
 
     def parse_transformation_features(
         self,
-        current_transformation_features: list[str | Feature | FeatureGroup],
-        new_transformation_features: list[str | Feature | FeatureGroup],
+        current_transformation_features: list[
+            str | feature.Feature | feature_group.FeatureGroup
+        ],
+        new_transformation_features: list[
+            str | feature.Feature | feature_group.FeatureGroup
+        ],
     ) -> list[TransformationFeature]:
         updated_transformation_features = []
         for existing_tf, new_tf in zip(
             current_transformation_features, new_transformation_features
         ):
-            if isinstance(existing_tf, str):
-                if isinstance(new_tf, str):
-                    updated_transformation_features.append(
-                        TransformationFeature(
-                            feature_name=new_tf,
-                            statistic_argument_name=existing_tf.statistic_argument_name,
-                        )
+            if isinstance(new_tf, str):
+                updated_transformation_features.append(
+                    TransformationFeature(
+                        feature_name=new_tf,
+                        statistic_argument_name=existing_tf.statistic_argument_name,
                     )
-                elif isinstance(new_tf, Feature):
-                    updated_transformation_features.append(
-                        TransformationFeature(
-                            feature_name=new_tf.name,
-                            statistic_argument_name=existing_tf.statistic_argument_name,
-                            feature_group_name=new_tf.feature_group.name,
-                            feature_group_version=new_tf.feature_group.version,
-                        )
+                )
+            elif isinstance(new_tf, feature.Feature):
+                updated_transformation_features.append(
+                    TransformationFeature(
+                        feature_name=new_tf.name,
+                        statistic_argument_name=existing_tf.statistic_argument_name,
+                        feature_group_id=new_tf.feature_group_id,
                     )
-                elif isinstance(new_tf, FeatureGroup):
-                    updated_transformation_features.append(
-                        TransformationFeature(
-                            feature_name="*",
-                            statistic_argument_name=existing_tf.statistic_argument_name,
-                            feature_group_name=new_tf.name,
-                            feature_group_version=new_tf.version,
-                        )
+                )
+            elif isinstance(new_tf, feature_group.FeatureGroup):
+                updated_transformation_features.append(
+                    TransformationFeature(
+                        feature_name="*",
+                        statistic_argument_name=existing_tf.statistic_argument_name,
+                        feature_group_id=new_tf.id,
                     )
+                )
         return updated_transformation_features
 
     def alias(self, *args: str):
@@ -878,13 +910,31 @@ def renaming_wrapper(*args):
         - In the `spark` engine: Always returns a spark udf.
         - In the `python` engine: Always returns a python udf.
 
+        If the execution mode is `"agg"`:
+
+        - In the `spark` engine: Returns a spark pandas_udf with aggregation wrapper.
+        - In the `python` engine: Returns an aggregation wrapper function.
+
         Parameters:
-            inference: Specify if udf required for online inference.
+            online: Specify if udf required for online inference.
+            engine_type: The engine type to use. If None, uses the current engine.
 
         Returns:
             Pandas UDF in the spark engine otherwise returns a python function for the UDF.
         """
         engine_type = engine_type or engine.get_type()
+
+        # Handle aggregation mode
+        if self.execution_mode == UDFExecutionMode.AGG:
+            if engine_type in ["python", "training"] or online:
+                return self.aggregation_udf_wrapper()
+            from pyspark.sql.functions import pandas_udf
+
+            return pandas_udf(
+                f=self.aggregation_udf_wrapper(),
+                returnType=self._create_pandas_udf_return_schema_from_list(),
+            )
+
         if (
             self.execution_mode.get_current_execution_mode(online)
             == UDFExecutionMode.PANDAS
@@ -979,7 +1029,11 @@ def renaming_wrapper(*args):
         return {
             "sourceCode": self._function_source,
             "outputTypes": self.return_types,
-            "transformationFeatures": self.transformation_features.to_dict(),
+            "transformationFeatures": [
+                tf.to_dict() for tf in self._transformation_features
+            ]
+            if self._transformation_features
+            else [],
             "transformationFunctionArgumentNames": self._transformation_function_argument_names,
             "droppedArgumentNames": self._dropped_argument_names,
             "statisticsArgumentNames": self._statistics_argument_names
@@ -988,6 +1042,7 @@ def renaming_wrapper(*args):
             "name": self.function_name,
             "featureNamePrefix": self._feature_name_prefix,
             "executionMode": self.execution_mode.value.upper(),
+            "groupBy": self._group_by,
             **(
                 {"outputColumnNames": self.output_column_names}
                 if Version(backend_version) >= Version("4.1.6")
@@ -1002,6 +1057,14 @@ def renaming_wrapper(*args):
             JSON serialized object.
         """
         return json.dumps(self, cls=util.Encoder)
+
+    def group_by(self, columns: list[str] | str | None) -> HopsworksUdf:
+        udf = copy.deepcopy(self)
+        udf.group_by_features = columns
+        udf._external_data_dependencies, udf._external_features = (
+            self.update_external_features(udf._transformation_features, udf._group_by)
+        )
+        return udf
 
     @classmethod
     def from_response_json(
@@ -1215,6 +1278,20 @@ def renaming_wrapper(*args):
         return self._execution_mode
 
     @property
+    def group_by_features(self) -> list[str] | None:
+        """List of column names to group by for aggregation UDFs."""
+        return self._group_by
+
+    @group_by_features.setter
+    def group_by_features(self, columns: list[str] | str | None) -> None:
+        if columns is None:
+            self._group_by = None
+        elif isinstance(columns, list):
+            self._group_by = columns
+        else:
+            self._group_by = [columns]
+
+    @property
     def transformation_context(self) -> dict[str, Any]:
         """Dictionary that contains the context variables required for the UDF.
 
@@ -1267,6 +1344,20 @@ def renaming_wrapper(*args):
             output_col_names = [output_col_names]
         self._validate_output_col_name(output_col_names)
         self._output_column_names = output_col_names
+
+    @property
+    def external_data_dependencies(self) -> bool:
+        return self._external_data_dependencies
+
+    @property
+    def external_features(self) -> set[str]:
+        if self._external_features is None:
+            self._external_features = {
+                feature.feature_name
+                for feature in self._transformation_features
+                if feature.feature_group_id
+            }
+        return self._external_features
 
     def __repr__(self):
         return f"{self.function_name}({', '.join(self.transformation_features)})"

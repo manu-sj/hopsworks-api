@@ -1,0 +1,26 @@
+{{ module_imports }}
+import pandas as pd
+
+{{ timezone_converter }}
+
+def renaming_wrapper(*args):
+    {{ formatted_function_source | indent(4) }}
+    _df = {{ function_name }}(*args)
+{% if has_multiple_outputs %}
+    if isinstance(_df, tuple):
+        _df = pd.concat(_df, axis=1)
+    _df.columns = _output_col_names
+    for _col in _datetime_output_columns:
+        if pd.api.types.is_datetime64_any_dtype(_df[_col]):
+            _df[_col] = _convert_timezone(_df[_col])
+    return _df
+{% else %}
+    # If the output is a dataframe, then it should be a single column dataframe, so we can squeeze it to a series.
+    _df = _df.squeeze(axis=1) if isinstance(_df, pd.DataFrame) else _df
+    _df = _df.rename(_output_col_names[0])
+    if _datetime_output_columns:
+        # Set correct type if column is not of datetime type
+        if pd.api.types.is_datetime64_any_dtype(_df):
+            _df = _convert_timezone(_df)
+    return _df
+{% endif %}

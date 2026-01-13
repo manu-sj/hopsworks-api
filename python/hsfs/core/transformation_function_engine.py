@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import atexit
 import multiprocessing
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -31,7 +32,7 @@ from hsfs import (
     training_dataset,
     transformation_function,
 )
-from hsfs.core import transformation_function_api
+from hsfs.core import feature_group_api, transformation_function_api
 from hsfs.hopsworks_udf import HopsworksUdf, UDFExecutionMode
 
 
@@ -59,10 +60,17 @@ class TransformationFunctionEngine:
 
     __process_pool = None
 
+    _feature_group_api: feature_group_api.FeatureGroupApi = (
+        feature_group_api.FeatureGroupApi()
+    )
+
     def __init__(self, feature_store_id: int):
         self._feature_store_id = feature_store_id
         self._transformation_function_api: transformation_function_api.TransformationFunctionApi = transformation_function_api.TransformationFunctionApi(
             feature_store_id
+        )
+        self._feature_group_api: feature_group_api.FeatureGroupApi = (
+            feature_group_api.FeatureGroupApi()
         )
         atexit.register(TransformationFunctionEngine.shutdown_process_pool)
 
@@ -185,7 +193,7 @@ class TransformationFunctionEngine:
                         }
                 missing_features = (
                     missing_features - transformation_function_output_feature
-                )
+                ) - set(tf.hopsworks_udf.external_features)
 
                 if missing_features:
                     raise exceptions.TransformationFunctionException(
@@ -211,6 +219,7 @@ class TransformationFunctionEngine:
         request_parameters: dict[str, Any] = None,
         expected_features: set[str] = None,
         n_processes: int = None,
+        feature_store_id: int = None,
     ) -> list[dict[str, Any]] | pd.DataFrame | pl.DataFrame:
         """Function to apply the transformation functions to the passed data.
 
@@ -251,6 +260,7 @@ class TransformationFunctionEngine:
                     expected_features=expected_features,
                     n_processes=n_processes,
                     dropped_features=dropped_features,
+                    feature_store_id=feature_store_id,
                 )
             else:
                 # In the case of spark, we execute the transformation functions using the spark engine since the transformations are pushed down to Spark and are not executed in Python.
@@ -301,6 +311,7 @@ class TransformationFunctionEngine:
         expected_features: set[str] = None,
         n_processes: int = None,
         dropped_features: set[str] = None,
+        feature_store_id: int = None,
     ) -> list[dict[str, Any]] | pd.DataFrame | pl.DataFrame:
         """Function to apply the transformation functions to the passed dataframe or list of dictionaries.
 
@@ -345,6 +356,15 @@ class TransformationFunctionEngine:
         for tf in transformation_functions:
             udf = tf.hopsworks_udf
             udf.transformation_context = transformation_context
+            external_data = (
+                TransformationFunctionEngine.fetch_external_feature_group_data(
+                    external_data_dependencies=udf.external_data_dependencies,
+                    feature_store_id=feature_store_id,
+                    online=online,
+                )
+                if udf.external_features
+                else None
+            )
             if not isinstance(transformed_data, dict):
                 for col in udf.output_column_names:
                     if col in transformed_data_columns:
@@ -365,6 +385,7 @@ class TransformationFunctionEngine:
                     data=transformed_data,
                     online=online,
                     engine_type=engine.get_type(),
+                    external_data=external_data,
                 )
             )
         for future in as_completed(futures):
@@ -405,6 +426,7 @@ class TransformationFunctionEngine:
         | list[dict[str, Any]],
         engine_type: str | None = None,
         online: bool = False,
+        external_data: dict[int, pd.DataFrame | pl.DataFrame] = None,
     ) -> list[dict[str, Any]] | pd.DataFrame | pl.DataFrame:
         """Function to execute the UDF used to defined a transformation function on passed data.
 
@@ -421,18 +443,30 @@ class TransformationFunctionEngine:
         execution_engine = engine.get_instance()
         if execution_engine.check_supported_dataframe(data):
             return execution_engine.apply_udf_on_dataframe(
-                udf=udf, dataframe=data, online=online, engine_type=engine_type
+                udf=udf,
+                dataframe=data,
+                online=online,
+                engine_type=engine_type,
+                external_data=external_data,
             )
         if isinstance(data, dict):
             return TransformationFunctionEngine.apply_udf_on_dict(
-                udf=udf, data=data, online=online, engine_type=engine_type
+                udf=udf,
+                data=data,
+                online=online,
+                engine_type=engine_type,
+                external_data=external_data,
             )
         if isinstance(data, list):
             transformed_results = []
             for row in data:
                 transformed_results.append(
                     TransformationFunctionEngine.apply_udf_on_dict(
-                        udf=udf, data=row, online=online, engine_type=engine_type
+                        udf=udf,
+                        data=row,
+                        online=online,
+                        engine_type=engine_type,
+                        external_data=external_data,
                     )
                 )
             return transformed_results
@@ -446,6 +480,7 @@ class TransformationFunctionEngine:
         data: dict[str, Any],
         online: bool | None = True,
         engine_type: str | None = None,
+        external_data: dict[int, pd.DataFrame | pl.DataFrame] = None,
     ) -> dict[str, Any]:
         """Function to apply the UDF used to defined a transformation function on a dictionary.
 
@@ -466,17 +501,30 @@ class TransformationFunctionEngine:
                 "Cannot apply transformation functions on a dictionary in offline mode when the engine is spark. Please use the python engine or use the online mode."
             )
 
+        input_external_data = defaultdict(list)
+        for feature in udf.transformation_features:
+            if feature.feature_group_id:
+                input_external_data.update(
+                    external_data[feature.feature_group_id].to_dict(orient="list")
+                )
+
         for unprefixed_feature in udf.unprefixed_transformation_features:
             prefixed_feature = (
                 udf.feature_name_prefix + unprefixed_feature
                 if udf.feature_name_prefix
                 else unprefixed_feature
             )
-            feature_value = data.get(prefixed_feature, data.get(unprefixed_feature))
+            feature_value = input_external_data.get(
+                unprefixed_feature,
+                data.get(prefixed_feature, data.get(unprefixed_feature)),
+            )
 
+            execution_mode = udf.execution_mode.get_current_execution_mode(
+                online=online
+            )
             if (
-                udf.execution_mode.get_current_execution_mode(online=online)
-                == UDFExecutionMode.PANDAS
+                execution_mode == UDFExecutionMode.PANDAS
+                or execution_mode == UDFExecutionMode.AGG
             ):
                 features.append(pd.Series(feature_value))
             else:
@@ -518,6 +566,29 @@ class TransformationFunctionEngine:
             transformation_function_instance `transformation_function.TransformationFunction`: The transformation function to be removed from the feature store.
         """
         self._transformation_function_api.delete(transformation_function_instance)
+
+    @staticmethod
+    def fetch_external_feature_group_data(
+        external_data_dependencies: dict[int, list[str]],
+        feature_store_id: int,
+        online: bool = False,
+    ) -> pd.DataFrame | pl.DataFrame:
+        """Function to fetch the data from the external feature group.
+
+        Parameters:
+            feature_group_id: The ID of the feature group to fetch the data from.
+            feature_store_id: The ID of the feature store to fetch the data from.
+        """
+        external_data = {}
+        for feature_group_id, feature_names in external_data_dependencies.items():
+            fg = TransformationFunctionEngine._feature_group_api.get_by_id(
+                feature_store_id, feature_group_id
+            )
+            feature_names.update(fg.primary_key)
+            external_data[feature_group_id] = fg.select(list(feature_names)).read(
+                online=online
+            )
+        return external_data
 
     @staticmethod
     def compute_transformation_fn_statistics(

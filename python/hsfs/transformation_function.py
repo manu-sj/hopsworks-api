@@ -101,19 +101,22 @@ class TransformationFunction:
             transformation_type if transformation_type else TransformationType.UNDEFINED
         )
 
-        self._group_by: list[str] = group_by
+        # Use provided group_by, or fall back to UDF's group_by if available
+        self._group_by: list[str] = (
+            group_by if group_by is not None else self.__hopsworks_udf.group_by_features
+        )
 
         if (
             self._group_by
-            and self.__hopsworks_udf.execution_mode != UDFExecutionMode.AGGREGATION
+            and self.__hopsworks_udf.execution_mode != UDFExecutionMode.AGG
         ):
             _logger.warning(
                 "Group by is specified for a transformation function that is not an aggregation function, implicitly setting the execution mode to aggregation. You can manually set the execution mode to aggregation using the `@udf(mode='agg')` decorator."
             )
-            self.__hopsworks_udf.execution_mode = UDFExecutionMode.AGGREGATION
+            self.__hopsworks_udf._execution_mode = UDFExecutionMode.AGG
         elif (
             not self._group_by
-            and self.__hopsworks_udf.execution_mode == UDFExecutionMode.AGGREGATION
+            and self.__hopsworks_udf.execution_mode == UDFExecutionMode.AGG
         ):
             raise FeatureStoreException(
                 f"Group by columns are mandatory for {self.__hopsworks_udf.execution_mode} UDF's. Please specify the group by columns using the `@udf(group_by=['<column_name1>', '<column_name2>', ...])` decorator."
@@ -391,6 +394,10 @@ class TransformationFunction:
             The resulting values of the transformation function.
         """
         return self.hopsworks_udf.executor().execute(*args)
+
+    def group_by(self, columns: list[str] | str | None) -> TransformationFunction:
+        self.__hopsworks_udf.group_by_features = columns
+        return self
 
     @staticmethod
     def _validate_transformation_type(

@@ -1159,6 +1159,7 @@ class Engine:
         #    transformation_function_engine.TransformationFunctionEngine.get_and_set_feature_statistics(
         #        training_dataset_obj, feature_view_obj, training_dataset_version
         #    )
+
         return transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
             execution_graph=feature_view_obj._model_dependent_transformation_execution_graph,
             data=df,
@@ -1287,19 +1288,23 @@ class Engine:
         #    transformation_function_engine.TransformationFunctionEngine.get_and_set_feature_statistics(
         #        training_dataset_obj, feature_view_obj, training_dataset_version
         #    )
-        # and the apply them
+
+        # Apply transformations to each split
         for split_name in result_dfs:
+            split_df = result_dfs.get(split_name)
+
+            # Apply transformations (aggregation UDFs run first via execution graph)
             result_dfs[split_name] = (
                 transformation_function_engine.TransformationFunctionEngine.apply_transformation_functions(
                     execution_graph=feature_view_obj._model_dependent_transformation_execution_graph,
-                    data=result_dfs.get(split_name),
+                    data=split_df,
                     online=False,
                     transformation_context=transformation_context,
                     request_parameters=None,
                     n_processes=n_processes,
                 )
                 if feature_view_obj.transformation_functions
-                else result_dfs.get(split_name)
+                else split_df
             )
 
         return result_dfs
@@ -1585,6 +1590,7 @@ class Engine:
         dataframe: pd.DataFrame | pl.DataFrame,
         online: bool = False,
         engine_type: str | None = None,
+        external_data: dict[int, pd.DataFrame | pl.DataFrame] | None = None,
     ) -> pd.DataFrame | pl.DataFrame:
         """Apply a udf to a dataframe."""
         if (
@@ -1596,12 +1602,14 @@ class Engine:
                 dataframe=dataframe,
                 online=online,
                 engine_type=engine_type,
+                external_data=external_data,
             )
         return self._apply_python_udf(
             hopsworks_udf=udf,
             dataframe=dataframe,
             online=online,
             engine_type=engine_type,
+            external_data=external_data,
         )
 
     def _apply_python_udf(
@@ -1610,6 +1618,7 @@ class Engine:
         dataframe: pd.DataFrame | pl.DataFrame,
         online: bool = False,
         engine_type: str | None = None,
+        external_data: dict[int, pd.DataFrame | pl.DataFrame] | None = None,
     ) -> pd.DataFrame | pl.DataFrame:
         """Apply a python udf to a dataframe.
 
@@ -1677,6 +1686,7 @@ class Engine:
         dataframe: pd.DataFrame | pl.DataFrame,
         online: bool = False,
         engine_type: str | None = None,
+        external_data: dict[int, pd.DataFrame | pl.DataFrame] | None = None,
     ) -> pd.DataFrame | pl.DataFrame:
         """Apply a pandas udf to a dataframe.
 
@@ -1702,31 +1712,69 @@ class Engine:
             else:
                 dataframe = dataframe.to_pandas(use_pyarrow_extension_array=False)
 
-        transformed_data = pd.DataFrame()
+        transformed_data = (
+            dataframe[hopsworks_udf.group_by_features]
+            if hopsworks_udf.execution_mode == UDFExecutionMode.AGG
+            else pd.DataFrame()
+        )
 
-        if len(hopsworks_udf.return_types) > 1:
-            transformed_data[hopsworks_udf.output_column_names] = hopsworks_udf.get_udf(
-                online=online, engine_type=engine_type
-            )(
-                *(
-                    [
-                        dataframe[feature]
-                        for feature in hopsworks_udf.transformation_features
-                    ]
-                )
-            ).set_index(
+        executable_udf = hopsworks_udf.get_udf(online=online, engine_type=engine_type)
+
+        has_internal_features = (
+            any(
+                feat not in hopsworks_udf.external_features
+                for feat in hopsworks_udf.transformation_features
+            )
+            if external_data
+            else True
+        )
+
+        input_dataframe = (
+            dataframe.groupby(hopsworks_udf.group_by_features)
+            if hopsworks_udf.execution_mode == UDFExecutionMode.AGG
+            and has_internal_features
+            else dataframe
+        )
+        input_external_data = (
+            {
+                feature.feature_group_id: external_data[
+                    feature.feature_group_id
+                ].groupby(hopsworks_udf.group_by_features)
+                if hopsworks_udf.execution_mode == UDFExecutionMode.AGG
+                else external_data[feature.feature_group_id]
+                for feature in hopsworks_udf._transformation_features
+                if feature.feature_group_id
+            }
+            if external_data
+            else {}
+        )
+
+        result: pd.Series | pd.DataFrame = executable_udf(
+            *[
+                input_dataframe[feature.feature_name]
+                if not hopsworks_udf.external_features
+                else input_external_data[feature.feature_group_id][feature.feature_name]
+                for feature in hopsworks_udf._transformation_features
+            ]
+        )
+        if hopsworks_udf.execution_mode == UDFExecutionMode.AGG:
+            result = (
+                result.rename(hopsworks_udf.output_column_names[0])
+                if isinstance(result, pd.Series)
+                else result.rename(
+                    columns=dict(zip(result.columns, hopsworks_udf.output_column_names))
+                ).reset_index()
+            )
+            transformed_data = dataframe.merge(
+                result, on=hopsworks_udf.group_by_features
+            )
+        elif len(hopsworks_udf.return_types) > 1:
+            transformed_data[hopsworks_udf.output_column_names] = result.set_index(
                 dataframe.index
             )  # Index is set to the input dataframe index so that pandas would merge the new columns without reordering them.
         else:
-            transformed_data[hopsworks_udf.output_column_names[0]] = (
-                hopsworks_udf.get_udf(online=online, engine_type=engine_type)(
-                    *(
-                        [
-                            dataframe[feature]
-                            for feature in hopsworks_udf.transformation_features
-                        ]
-                    )
-                ).set_axis(dataframe.index)
+            transformed_data[hopsworks_udf.output_column_names[0]] = result.set_axis(
+                dataframe.index
             )  # Index is set to the input dataframe index so that pandas would merge the new column without reordering it.
         return transformed_data
 
