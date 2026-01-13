@@ -5,19 +5,22 @@ from hsml.client.exceptions import ModelServingException
 from hsml.deployment import Deployment
 from hsml.model import Model
 
-{% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
+{% if model_type == MODEL.FRAMEWORK_PYTHON %}
 import numpy as np
 import pandas as pd
 {% endif %}
 
-{% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
+{% if model_type == MODEL.FRAMEWORK_SKLEARN %}
 import numpy as np
 {% endif %}
 
-{# PATCH MUST BE REMOVED #}
-# PATCH MUST BE REMOVED
-import nest_asyncio
-nest_asyncio.apply()
+{% if model_type == MODEL.FRAMEWORK_TORCH %}
+import torch
+{% endif %}
+
+{% if model_type == MODEL.FRAMEWORK_TENSORFLOW %}
+import tensorflow as tf
+{% endif %}
 
 {# Class definition #}
 class Predictor:
@@ -149,8 +152,8 @@ class Predictor:
 
         {% endif %}
 
-        {% if modeL_type == MODEL.FRAMEWORK_PYTHON %}
-        {# Assuming that the return type of a transformation functions can be either a list, a numpy array, pandas DataFrame / Series #}
+        {% if model_type == MODEL.FRAMEWORK_PYTHON %}
+        {# Python models can return list, numpy array, pandas DataFrame / Series #}
         if isinstance(predictions, np.ndarray):
             predictions = predictions.tolist()
         elif isinstance(predictions, pd.DataFrame):
@@ -159,8 +162,22 @@ class Predictor:
             predictions = predictions.to_list()
         {% endif %}
 
-        {% if modeL_type == MODEL.FRAMEWORK_SKLEARN %}
+        {% if model_type == MODEL.FRAMEWORK_SKLEARN %}
         predictions = predictions.tolist()
+        {% endif %}
+
+        {% if model_type == MODEL.FRAMEWORK_TORCH %}
+        {# PyTorch models return torch.Tensor #}
+        if isinstance(predictions, torch.Tensor):
+            predictions = predictions.detach().cpu().tolist()
+        {% endif %}
+
+        {% if model_type == MODEL.FRAMEWORK_TENSORFLOW %}
+        {# TensorFlow models return tf.Tensor or numpy arrays #}
+        if isinstance(predictions, tf.Tensor):
+            predictions = predictions.numpy().tolist()
+        elif hasattr(predictions, 'tolist'):
+            predictions = predictions.tolist()
         {% endif %}
 
         return predictions
