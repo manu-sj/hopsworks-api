@@ -492,3 +492,12 @@ class TransformationFunction:
 
     def __eq__(self, other):
         return self.to_dict() == other.to_dict()
+
+    @property
+    def group_by_features(self) -> list[str] | None:
+        """List of column names to group by for aggregation UDFs."""
+        return self.__hopsworks_udf.group_by_features
+
+    @group_by_features.setter
+    def group_by_features(self, columns: list[str] | str | None) -> None:
+        self.__hopsworks_udf.group_by_features = columns

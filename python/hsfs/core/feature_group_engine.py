@@ -235,6 +235,7 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
                     transformation_context=transformation_context,
                     online=False,
                     n_processes=n_processes,
+                    feature_store_id=self._feature_store_id,
                 )
             except exceptions.TransformationFunctionException as e:
                 raise exceptions.FeatureStoreException(

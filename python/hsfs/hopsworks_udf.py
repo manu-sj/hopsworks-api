@@ -146,9 +146,9 @@ class TransformationFeature:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "feature_name": self.feature_name,
+            "featureName": self.feature_name,
             "statistic_argument_name": self.statistic_argument_name,
-            "feature_group_id": self.feature_group_id,
+            "featureGroupId": self.feature_group_id,
         }
 
     def json(self) -> str:
@@ -164,8 +164,7 @@ class TransformationFeature:
             statistic_argument_name=json_decamelized.get(
                 "statistic_argument_name", None
             ),
-            feature_group_name=json_decamelized.get("feature_group_name", None),
-            feature_group_version=json_decamelized.get("feature_group_version", None),
+            feature_group_id=json_decamelized.get("feature_group_id", None),
         )
 
 
@@ -1086,7 +1085,8 @@ class HopsworksUdf:
             output_type.strip() for output_type in json_decamelized["output_types"]
         ]
         transformation_features = [
-            feature.strip() for feature in json_decamelized["transformation_features"]
+            TransformationFeature.from_response_json(feature)
+            for feature in json_decamelized["transformation_features"]
         ]
         dropped_argument_names = (
             [
@@ -1128,9 +1128,16 @@ class HopsworksUdf:
             transformation_features if transformation_features else arg_list
         )
 
+        transformation_feature_names = [
+            transformation_feature.feature_name
+            if isinstance(transformation_feature, TransformationFeature)
+            else transformation_feature
+            for transformation_feature in transformation_features
+        ]
+
         dropped_feature_names = (
             [
-                transformation_features[arg_list.index(dropped_argument_name)]
+                transformation_feature_names[arg_list.index(dropped_argument_name)]
                 for dropped_argument_name in dropped_argument_names
             ]
             if dropped_argument_names
@@ -1138,23 +1145,11 @@ class HopsworksUdf:
         )
 
         if statistics_features:
-            transformation_features = [
-                TransformationFeature(
-                    feature_name=transformation_features[arg_index],
-                    statistic_argument_name=arg_list[arg_index]
-                    if arg_list[arg_index] in statistics_features
-                    else None,
-                )
-                for arg_index in range(len(arg_list))
-            ]
-        else:
-            transformation_features = [
-                TransformationFeature(
-                    feature_name=transformation_features[arg_index],
-                    statistic_argument_name=None,
-                )
-                for arg_index in range(len(arg_list))
-            ]
+            for arg_index in range(len(arg_list)):
+                if arg_list[arg_index] in statistics_features:
+                    transformation_features[
+                        arg_index
+                    ].statistic_argument_name = arg_list[arg_index]
 
         hopsworks_udf: HopsworksUdf = cls(
             func=function_source_code,
@@ -1169,6 +1164,7 @@ class HopsworksUdf:
                 json_decamelized["execution_mode"]
             ),
             output_column_names=output_column_names,
+            group_by=json_decamelized.get("group_by", None),
             generate_output_col_names=not output_column_names,  # Do not generate output column names if they are retrieved from the back
         )
 

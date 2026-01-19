@@ -92,7 +92,10 @@ from hsfs.decorators import typechecked, uses_great_expectations
 from hsfs.embedding import EmbeddingIndex
 from hsfs.online_config import OnlineConfig
 from hsfs.statistics_config import StatisticsConfig
-from hsfs.transformation_function import TransformationFunction, TransformationType
+from hsfs.transformation_function import (
+    TransformationFunction,
+    TransformationType,
+)
 from hsfs.validation_report import ValidationReport
 
 
@@ -2706,6 +2709,7 @@ class FeatureGroup(FeatureGroupBase):
                             hopsworks_udf=transformation_function,
                             version=1,
                             transformation_type=TransformationType.ON_DEMAND,
+                            # group_by=transformation_function.group_by if transformation_function.group_by_features else self.primary_key if transformation_function.execution_mode == UDFExecutionMode.AGG and not transformation_function.group_by_features else None
                         )
                     )
                 else:
@@ -2717,6 +2721,8 @@ class FeatureGroup(FeatureGroupBase):
                         transformation_function.transformation_type = (
                             TransformationType.ON_DEMAND
                         )
+                    # if transformation_function.execution_mode == UDFExecutionMode.AGG and not transformation_function.group_by_features:
+                    #    transformation_function.group_by_features = self.primary_key
                     self._transformation_functions.append(transformation_function)
         self._transformation_function_execution_graph: list[
             list[TransformationFunction]
