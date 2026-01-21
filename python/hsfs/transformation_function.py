@@ -102,12 +102,11 @@ class TransformationFunction:
         )
 
         # Use provided group_by, or fall back to UDF's group_by if available
-        self._group_by: list[str] = (
-            group_by if group_by is not None else self.__hopsworks_udf.group_by_features
-        )
+        if group_by:
+            self.group_by_features = group_by
 
         if (
-            self._group_by
+            self.group_by_features
             and self.__hopsworks_udf.execution_mode != UDFExecutionMode.AGG
         ):
             _logger.warning(
@@ -115,7 +114,7 @@ class TransformationFunction:
             )
             self.__hopsworks_udf._execution_mode = UDFExecutionMode.AGG
         elif (
-            not self._group_by
+            not self.group_by_features
             and self.__hopsworks_udf.execution_mode == UDFExecutionMode.AGG
         ):
             raise FeatureStoreException(

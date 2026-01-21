@@ -95,6 +95,7 @@ from hsfs.statistics_config import StatisticsConfig
 from hsfs.transformation_function import (
     TransformationFunction,
     TransformationType,
+    UDFExecutionMode,
 )
 from hsfs.validation_report import ValidationReport
 
@@ -2703,13 +2704,28 @@ class FeatureGroup(FeatureGroupBase):
         if transformation_functions:
             for transformation_function in transformation_functions:
                 if not isinstance(transformation_function, TransformationFunction):
+                    print(
+                        transformation_function.group_by_features
+                        if transformation_function.group_by_features
+                        else self.primary_key
+                        if transformation_function.execution_mode
+                        == UDFExecutionMode.AGG
+                        and not transformation_function.group_by_features
+                        else None
+                    )
                     self._transformation_functions.append(
                         TransformationFunction(
                             featurestore_id,
                             hopsworks_udf=transformation_function,
                             version=1,
                             transformation_type=TransformationType.ON_DEMAND,
-                            # group_by=transformation_function.group_by if transformation_function.group_by_features else self.primary_key if transformation_function.execution_mode == UDFExecutionMode.AGG and not transformation_function.group_by_features else None
+                            group_by=transformation_function.group_by_features
+                            if transformation_function.group_by_features
+                            else self.primary_key
+                            if transformation_function.execution_mode
+                            == UDFExecutionMode.AGG
+                            and not transformation_function.group_by_features
+                            else None,
                         )
                     )
                 else:
@@ -2721,8 +2737,12 @@ class FeatureGroup(FeatureGroupBase):
                         transformation_function.transformation_type = (
                             TransformationType.ON_DEMAND
                         )
-                    # if transformation_function.execution_mode == UDFExecutionMode.AGG and not transformation_function.group_by_features:
-                    #    transformation_function.group_by_features = self.primary_key
+                    if (
+                        transformation_function.hopsworks_udf.execution_mode
+                        == UDFExecutionMode.AGG
+                        and not transformation_function.group_by_features
+                    ):
+                        transformation_function.group_by_features = self.primary_key
                     self._transformation_functions.append(transformation_function)
         self._transformation_function_execution_graph: list[
             list[TransformationFunction]
