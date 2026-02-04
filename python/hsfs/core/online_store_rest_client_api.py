@@ -37,7 +37,7 @@ if HAS_NUMPY:
         def default(self, obj):
             dtypes = (np.datetime64, np.complexfloating)
             if isinstance(obj, (datetime, date)):
-                return util.dateconvert_event_time_to_timestamp(obj)
+                return util.convert_event_time_to_timestamp(obj)
             if isinstance(obj, dtypes):
                 return str(obj)
             if isinstance(obj, np.integer):
