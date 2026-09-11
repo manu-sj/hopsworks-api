@@ -175,6 +175,78 @@ class TestFeatureGroupEngine:
         # Assert
         assert mock_engine_get_instance.return_value._save_dataframe.call_count == 1
 
+    @pytest.mark.parametrize(
+        "online_enabled,validation_options,should_validate_schema",
+        [
+            # Online enabled: validated unless explicitly opted out
+            (True, None, True),
+            (True, {}, True),
+            (True, {"online_schema_validation": False}, False),
+            (True, {"schema_validation": False}, False),
+            (True, {"schema_validation": True}, True),
+            # Not enabled: skipped unless explicitly opted in
+            (False, None, False),
+            (False, {}, False),
+            (False, {"online_schema_validation": False}, False),
+            (False, {"schema_validation": False}, False),
+            (False, {"schema_validation": True}, True),
+            (False, {"online_schema_validation": True}, True),
+            # Either option present switches both back to defaulting True, so the
+            # two are ANDed and the False one decides.
+            (
+                False,
+                {"schema_validation": True, "online_schema_validation": False},
+                False,
+            ),
+            (
+                True,
+                {"schema_validation": False, "online_schema_validation": True},
+                False,
+            ),
+        ],
+    )
+    def test_save_schema_validation(
+        self, online_enabled, validation_options, should_validate_schema, mocker
+    ):
+        # Arrange
+        feature_store_id = 99
+
+        mocker.patch("hsfs.engine._get_type")
+        mocker.patch("hsfs.engine._get_instance")
+        mocker.patch(
+            "hsfs.core.feature_group_engine.FeatureGroupEngine._save_feature_group_metadata"
+        )
+        mocker.patch("hsfs.core.great_expectation_engine.GreatExpectationEngine")
+        mock_validate_schema = mocker.patch(
+            "hsfs.core.schema_validation.DataFrameValidator._validate_schema"
+        )
+
+        fg_engine = feature_group_engine.FeatureGroupEngine(
+            feature_store_id=feature_store_id
+        )
+
+        fg = feature_group.FeatureGroup(
+            name="test",
+            version=1,
+            featurestore_id=feature_store_id,
+            primary_key=[],
+            foreign_key=[],
+            partition_key=[],
+            id=10,
+            online_enabled=online_enabled,
+        )
+
+        # Act
+        fg_engine._save(
+            feature_group=fg,
+            feature_dataframe=None,
+            write_options=None,
+            validation_options=validation_options,
+        )
+
+        # Assert
+        assert mock_validate_schema.called == should_validate_schema
+
     def test_save_dataframe_transformation_functions(self, mocker):
         # Arrange
         feature_store_id = 99
@@ -949,16 +1021,31 @@ class TestFeatureGroupEngine:
     @pytest.mark.parametrize(
         "online_enabled,validation_options,should_validate_schema",
         [
-            # Online enabled
+            # Online enabled: validated unless explicitly opted out
             (True, None, True),
             (True, {}, True),
             (True, {"online_schema_validation": False}, False),
             (True, {"schema_validation": False}, False),
-            # Not enabled
-            (False, None, True),
-            (False, {}, True),
+            (True, {"schema_validation": True}, True),
+            # Not enabled: skipped unless explicitly opted in
+            (False, None, False),
+            (False, {}, False),
             (False, {"online_schema_validation": False}, False),
             (False, {"schema_validation": False}, False),
+            (False, {"schema_validation": True}, True),
+            (False, {"online_schema_validation": True}, True),
+            # Either option present switches both back to defaulting True, so the
+            # two are ANDed and the False one decides.
+            (
+                False,
+                {"schema_validation": True, "online_schema_validation": False},
+                False,
+            ),
+            (
+                True,
+                {"schema_validation": False, "online_schema_validation": True},
+                False,
+            ),
         ],
     )
     def test_insert(

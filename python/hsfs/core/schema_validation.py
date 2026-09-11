@@ -6,11 +6,60 @@ from hopsworks_common.core.constants import HAS_POLARS
 from hopsworks_common.spark_connect_utils import _is_spark_dataframe
 
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class DataFrameValidator:
     # Base validator class
+
+    # `online_schema_validation` predates `schema_validation` and is still accepted.
+    _VALIDATION_OPTIONS = ("online_schema_validation", "schema_validation")
+
+    @classmethod
+    def _validate_schema_if_requested(
+        cls, feature_group, df, df_features, validation_options
+    ):
+        """Validate the input DataFrame unless this write opts out of validation.
+
+        Every check derives from an online storage limit, so validation runs by default
+        only for online-enabled feature groups.
+        Either validation option overrides that default in both directions.
+
+        Parameters:
+            feature_group: The feature group being written to.
+            df: The DataFrame to validate.
+            df_features: The list of feature metadata objects for the feature group.
+            validation_options: The `validation_options` given to the write call.
+
+        Returns:
+            The feature metadata, with online string lengths widened where validation ran on a feature group that does not exist yet.
+        """
+        if cls._is_validation_requested(feature_group, validation_options):
+            return cls()._validate_schema(feature_group, df, df_features)
+        if not feature_group.online_enabled:
+            _logger.info(
+                "Skipping pre-write schema validation for feature group '%s': it is not "
+                "online-enabled, so the online schema checks have no effect. "
+                "Pass validation_options={'schema_validation': True} to run them anyway.",
+                feature_group.name,
+            )
+        return df_features
+
+    @classmethod
+    def _is_validation_requested(cls, feature_group, validation_options) -> bool:
+        """Whether the input DataFrame should be validated before it is written.
+
+        Parameters:
+            feature_group: The feature group being written to.
+            validation_options: The `validation_options` given to the write call.
+        """
+        validation_options = validation_options or {}
+        if any(option in validation_options for option in cls._VALIDATION_OPTIONS):
+            return bool(
+                validation_options.get("online_schema_validation", True)
+                and validation_options.get("schema_validation", True)
+            )
+        return bool(feature_group.online_enabled)
 
     @staticmethod
     def _get_validator(df):
@@ -147,7 +196,7 @@ class DataFrameValidator:
                 # The widened length only matters for the online store; warning
                 # about it on an offline-only feature group is misleading noise.
                 if online_enabled:
-                    logger.warning(
+                    _logger.warning(
                         f"Maximum string length for column {i_feature.name} increased to {char_limit} in online table."
                     )
         return dataframe_features

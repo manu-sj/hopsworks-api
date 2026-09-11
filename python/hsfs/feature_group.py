@@ -4232,6 +4232,12 @@ class FeatureGroup(FeatureGroupBase):
             `insert` and `save` methods are now async by default in non-spark clients.
             To achieve the old behaviour, set `wait` argument to `True`.
 
+        Info: Schema validation is skipped for offline-only feature groups, ~=5.1.0
+            Up to version 5.1.0 the input dataframe was validated against the online schema limits on every write.
+            The validation now runs by default only when the feature group is `online_enabled`, because its checks derive from online storage limits.
+            One consequence is that null primary keys are no longer detected in an offline-only feature group.
+            Pass `validation_options={"schema_validation": True}` to keep validating.
+
         Calling `save` creates the metadata for the feature group in the feature store.
         If a Pandas DataFrame, Polars DatFrame, RDD or Ndarray is provided, the data is written to the online/offline feature store as specified.
         By default, this writes the feature group to the offline storage, and if `online_enabled` for the feature group, also to the online feature store.
@@ -4279,7 +4285,9 @@ class FeatureGroup(FeatureGroupBase):
                 - key `run_validation` boolean value, set to `False` to skip validation temporarily on ingestion.
                 - key `save_report` boolean value, set to `False` to skip upload of the validation report to Hopsworks.
                 - key `ge_validate_kwargs` a dictionary containing kwargs for the validate method of Great Expectations.
-                - key `schema_validation` boolean value, set to `True` to validate the schema.
+                - key `schema_validation` boolean value, controlling the pre-write schema validation of the input dataframe.
+                  Defaults to `True` for an online-enabled feature group and `False` otherwise, because every check it performs derives from an online storage limit.
+                  Set it to `True` to validate an offline-only feature group anyway, or to `False` to skip validation for an online-enabled one.
 
             wait:
                 Wait for job and online ingestion to finish before returning.
@@ -4432,6 +4440,13 @@ class FeatureGroup(FeatureGroupBase):
             `insert` and `save` methods are now async by default in non-spark clients.
             To achieve the old behaviour, set `wait` argument to `True`.
 
+        Info: Schema validation is skipped for offline-only feature groups, ~=5.1.0
+            Up to version 5.1.0 the input dataframe was validated against the online schema limits on every write.
+            The validation now runs by default only when the feature group is `online_enabled`, because its checks derive from online storage limits.
+            On the Spark engine this removes a full extra pass over the input dataframe, which for a dataframe built from a non-trivial query roughly halved the cost of an insert.
+            One consequence is that null primary keys are no longer detected in an offline-only feature group.
+            Pass `validation_options={"schema_validation": True}` to keep validating.
+
         Example: Upsert new feature data with time travel format `HUDI`
             ```python
             # connect to the Feature Store
@@ -4523,7 +4538,9 @@ class FeatureGroup(FeatureGroupBase):
                 - key `save_report` boolean value, set to `False` to skip upload of the validation report to Hopsworks.
                 - key `ge_validate_kwargs` a dictionary containing kwargs for the validate method of Great Expectations.
                 - key `fetch_expectation_suite` a boolean value, by default `True`, to control whether the expectation suite of the feature group should be fetched before every insert.
-                - key `schema_validation` boolean value, set to `True` to validate the schema.
+                - key `schema_validation` boolean value, controlling the pre-write schema validation of the input dataframe.
+                  Defaults to `True` for an online-enabled feature group and `False` otherwise, because every check it performs derives from an online storage limit.
+                  Set it to `True` to validate an offline-only feature group anyway, or to `False` to skip validation for an online-enabled one.
 
             wait:
                 Wait for job and online ingestion to finish before returning.

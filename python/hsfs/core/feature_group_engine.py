@@ -141,16 +141,9 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             feature_group.embedding_index, dataframe_features
         )
 
-        if not validation_options or (
-            validation_options.get(
-                "online_schema_validation", True
-            )  # for backwards compatibility
-            and validation_options.get("schema_validation", True)
-        ):
-            # validate df schema
-            dataframe_features = DataFrameValidator()._validate_schema(
-                feature_group, feature_dataframe, dataframe_features
-            )
+        dataframe_features = DataFrameValidator._validate_schema_if_requested(
+            feature_group, feature_dataframe, dataframe_features, validation_options
+        )
 
         self._save_feature_group_metadata(
             feature_group,
@@ -279,16 +272,9 @@ class FeatureGroupEngine(feature_group_base_engine.FeatureGroupBaseEngine):
             feature_group.embedding_index, dataframe_features
         )
 
-        if not validation_options or (
-            validation_options.get(
-                "online_schema_validation", True
-            )  # for backwards compatibility
-            and validation_options.get("schema_validation", True)
-        ):
-            # validate df schema
-            dataframe_features = DataFrameValidator()._validate_schema(
-                feature_group, feature_dataframe, dataframe_features
-            )
+        dataframe_features = DataFrameValidator._validate_schema_if_requested(
+            feature_group, feature_dataframe, dataframe_features, validation_options
+        )
 
         if not feature_group._id:
             # only save metadata if feature group does not exist
